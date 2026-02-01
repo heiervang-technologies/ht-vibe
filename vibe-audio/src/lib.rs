@@ -91,11 +91,14 @@
 //! }
 //! ```
 mod bar_processor;
+mod bpm_detector;
 mod interpolation;
 mod sample_processor;
 
 pub mod fetcher;
 pub mod util;
+
+pub use bpm_detector::{BpmDetector, BpmDetectorConfig};
 
 use cpal::SampleRate;
 

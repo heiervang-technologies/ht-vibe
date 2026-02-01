@@ -41,6 +41,8 @@ pub trait Component: Renderable {
 
     /// Tells the component the mouse position. `(x, y)`.
     fn update_mouse_position(&mut self, queue: &wgpu::Queue, new_pos: (f32, f32));
+
+    fn update_colors(&mut self, _queue: &wgpu::Queue, _colors: &[[f32; 3]; 4]) {}
 }
 
 /// An extended version of `Component` which includes methods related to audio.
