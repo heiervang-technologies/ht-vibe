@@ -1,3 +1,28 @@
+# ht-vibe
+
+_[Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vibe](https://github.com/TornaxO7/vibe)_
+
+[HT Discussions](https://github.com/orgs/heiervang-technologies/discussions) | [Fork Management Guide](https://github.com/orgs/heiervang-technologies/discussions/3) | [Upstream: TornaxO7/vibe](https://github.com/TornaxO7/vibe)
+
+---
+
+## HT Fork Changes
+
+This is the [Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vibe](https://github.com/TornaxO7/vibe). The `ht` branch contains the following changes on top of upstream `main`:
+
+| Change | Description | Contributed back? |
+|--------|-------------|-------------------|
+| Click-to-interact Pokemon shader support | Added support for interactive shader elements | No |
+
+### Branch Strategy
+
+- **`main`** — Clean mirror of upstream `main`. Never commit directly.
+- **`ht`** — Default branch with all HT-specific changes.
+
+For questions or discussion, visit the [HT Discussions](https://github.com/orgs/heiervang-technologies/discussions) page. See the [Fork Management Guide](https://github.com/orgs/heiervang-technologies/discussions/3) for branch conventions and sync workflow.
+
+---
+
 # Vibe
 
 `vibe` (to have a nice vibe with your music) is a desktop music visualizer inspired by [glava] and [shadertoy] for wayland!
