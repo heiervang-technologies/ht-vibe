@@ -53,3 +53,14 @@ var iSampler: sampler;
 // `let col = textureSample(iTexture, iSampler, uv).rgb;`
 @group(0) @binding(7)
 var iTexture: texture_2d<f32>;
+
+// Contains the last mouse click position and time.
+//   - xy: normalized click position (0-1), or (-1,-1) if cleared
+//   - z: time of click (seconds since start)
+//   - w: reserved (0.0)
+@group(0) @binding(8)
+var<uniform> iMouseClick: vec4f;
+
+// Contains the local wall-clock time as hours since midnight (0.0-24.0).
+@group(0) @binding(9)
+var<uniform> iLocalTime: f32;
