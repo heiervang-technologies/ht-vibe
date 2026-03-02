@@ -11,7 +11,7 @@ use padding::PaddingCtx;
 use realfft::num_complex::Complex32;
 use std::ops::Range;
 
-const INIT_NORMALIZATION_FACTOR: f32 = 1.;
+const INIT_NORMALIZATION_FACTOR: f32 = 0.1;
 const DEFAULT_PADDING_SIZE: usize = 5;
 
 /// Contains every additional information for a channel to be processed.
@@ -173,7 +173,13 @@ impl<I: Interpolater> ChannelCtx<I> {
         if overshoot {
             self.normalize_factor *= 0.98;
         } else if !is_silent {
-            self.normalize_factor *= 1.002;
+            // Ramp up faster when starting from a low normalize_factor so
+            // newly loaded shaders fade in quickly instead of staying dim.
+            if self.normalize_factor < 0.5 {
+                self.normalize_factor *= 1.03;
+            } else {
+                self.normalize_factor *= 1.002;
+            }
         }
     }
 
