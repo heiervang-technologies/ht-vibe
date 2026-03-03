@@ -12,7 +12,7 @@ on:
 
 jobs:
   sync:
-    uses: heiervang-technologies/core/.github/workflows/fork-sync-reusable.yml@main
+    uses: heiervang-technologies/.github/.github/workflows/fork-sync-reusable.yml@main
     with:
       upstream_repo: 'TornaxO7/vibe'
       upstream_branch: 'main'
