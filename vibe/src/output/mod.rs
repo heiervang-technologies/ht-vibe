@@ -9,7 +9,7 @@ use smithay_client_toolkit::{
         WaylandSurface,
     },
 };
-use tracing::error;
+use tracing::{error, warn};
 use vibe_audio::{fetcher::SystemAudioFetcher, SampleProcessor};
 use vibe_renderer::{ComponentAudio, Renderer};
 use wayland_client::QueueHandle;
@@ -54,7 +54,7 @@ impl OutputCtx {
                 {
                     Ok(component) => components.push(component),
                     Err(msg) => {
-                        error!("Skipping component: {}", msg);
+                        warn!("Skipping component: {}", msg);
                     }
                 }
             }
