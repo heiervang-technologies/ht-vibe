@@ -10,7 +10,7 @@ defaults:
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "ht" ]
     types: [opened, synchronize, reopened, ready_for_review]
 
 env:
