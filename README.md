@@ -23,13 +23,13 @@ This is the [Heiervang Technologies](https://github.com/heiervang-technologies) 
 - **Audio capture** — Use input device (monitor source) instead of output device
 - **Shader load flash** — Start normalize_factor low to prevent blinding flash on shader load
 
-#### Utilities (`utils/`)
+#### Utilities ([`utils/`](./utils/README.md))
 - **`cycle-shader.sh`** — Cycle through shaders for any output/window config (next/prev/by-name)
-- **`vibe-key-cycle.sh`** — Hyprland keybinding helper that cycles shaders on the focused vibe window
-- **`randomize-colors.sh`** — Randomize the 4-color palette (keybinding-friendly)
+- **`vibe-key-cycle.sh`** — Keybinding helper that cycles shaders on the focused vibe window (Hyprland, Sway, KDE)
+- **`randomize-colors.sh`** — Randomize the 4-color palette (keybinding-friendly, multi-compositor)
 - **`pokemon-click-cry.py`** — Click-triggered Pokemon cry daemon (watches `/tmp/vibe-click-species`)
 - **`pokemon-cries-daemon.sh`** — Ambient random Pokemon cries every 60-180s
-- **`cluster-status-feeder.sh`** — Feeds live Kubernetes cluster metrics (CPU/GPU/memory) into `cluster.wgsl` shader constants
+- **`cluster-status-feeder.sh`** — Feeds live Kubernetes cluster metrics into `cluster.wgsl` shader constants (configurable nodes)
 
 #### Documentation
 - **[SHADER_WRITING.md](./SHADER_WRITING.md)** — 1000+ line comprehensive WGSL shader development guide covering uniforms, audio reactivity, visual techniques, and performance optimization
