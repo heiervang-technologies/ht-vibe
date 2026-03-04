@@ -116,14 +116,48 @@ collect_node() {
 
 # ── Build and inject constants ────────────────────────────────
 
-# Configure your cluster nodes here:
-# Format: NAME IP GPU_COUNT IS_LOCAL
-NODES=(
-    "centurion 192.168.8.170 1 true"
-    "titan     192.168.8.158 2 false"
-    "rogue     192.168.8.123 1 false"
-    "sentinel  192.168.8.160 1 false"
-)
+# ── Load node config ──────────────────────────────────────────
+
+NODES_CONFIG="${VIBE_CLUSTER_NODES:-$HOME/.config/vibe/cluster-nodes.toml}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+load_nodes() {
+    if [[ ! -f "$NODES_CONFIG" ]]; then
+        echo "Node config not found: $NODES_CONFIG" >&2
+        echo "Copy the example and edit for your cluster:" >&2
+        echo "  cp $SCRIPT_DIR/cluster-nodes.toml.example ~/.config/vibe/cluster-nodes.toml" >&2
+        exit 1
+    fi
+
+    NODES=()
+    local name="" ip="" gpus="0" local_node="false"
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        [[ -z "${line// /}" ]] && continue
+        case "${line// /}" in
+            "[[nodes]]")
+                if [[ -n "$name" ]]; then
+                    NODES+=("$name $ip $gpus $local_node")
+                fi
+                name="" ip="" gpus="0" local_node="false"
+                ;;
+            name=*) name="${line#*= }"; name="${name//\"/}" ;;
+            ip=*)   ip="${line#*= }"; ip="${ip//\"/}" ;;
+            gpus=*) gpus="${line#*= }" ;;
+            local=*) local_node="${line#*= }" ;;
+        esac
+    done < "$NODES_CONFIG"
+    if [[ -n "$name" ]]; then
+        NODES+=("$name $ip $gpus $local_node")
+    fi
+
+    if [[ ${#NODES[@]} -eq 0 ]]; then
+        echo "No nodes defined in $NODES_CONFIG" >&2
+        exit 1
+    fi
+}
+
+load_nodes
 
 collect_and_inject() {
     local block="// ── CLUSTER_STATUS_BEGIN ──"
