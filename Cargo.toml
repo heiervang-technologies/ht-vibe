@@ -1,5 +1,6 @@
 [workspace]
 members = ["vibe-renderer", "vibe", "vibe-audio", "vibe-web"]
+default-members = ["vibe-renderer", "vibe", "vibe-audio"]
 resolver = "2"
 
 [workspace.dependencies]
