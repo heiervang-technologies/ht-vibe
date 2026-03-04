@@ -10,7 +10,7 @@ _[Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vi
 
 This is the [Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vibe](https://github.com/TornaxO7/vibe). The `ht` branch contains the following changes on top of upstream `main`:
 
-### Changelog
+### Changelog ([full changelog](./HT_CHANGELOG.md))
 
 #### Features
 - **18 custom WGSL shaders** — aurora, cluster, deep_sea, event_horizon, grass, liquid, mandelbrot_light, monolith, nebula, plasma, pokemon_grass, pokemon_grass_3d, singularity, solar_system, starfield, tesseract, vortex, waveform
