@@ -9,7 +9,7 @@ use smithay_client_toolkit::{
         WaylandSurface,
     },
 };
-use tracing::error;
+use tracing::{error, warn};
 use vibe_audio::{fetcher::SystemAudioFetcher, SampleProcessor};
 use vibe_renderer::{ComponentAudio, Renderer};
 use wayland_client::QueueHandle;
@@ -50,14 +50,13 @@ impl OutputCtx {
             let mut components = Vec::with_capacity(config.components.len());
 
             for comp_conf in config.components {
-                let component = comp_conf
-                    .create_component(renderer, sample_processor, surface_config.format)
-                    .unwrap_or_else(|msg| {
-                        error!("{}", msg);
-                        panic!("Invalid fragment shader code");
-                    });
-
-                components.push(component);
+                match comp_conf.create_component(renderer, sample_processor, surface_config.format)
+                {
+                    Ok(component) => components.push(component),
+                    Err(msg) => {
+                        warn!("Skipping component: {}", msg);
+                    }
+                }
             }
 
             components
