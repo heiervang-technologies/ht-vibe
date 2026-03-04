@@ -1,28 +1,25 @@
 #!/bin/bash
-# Cycle shader for the focused vibe window (Hyprland keybinding helper)
+# Cycle shader for the focused vibe window (keybinding helper)
 # Usage: vibe-key-cycle.sh [next|prev]
 #
-# Bind in ~/.config/hypr/bindings.conf:
+# Works with: Hyprland, Sway, KDE Plasma (any compositor supported by lib/compositor.sh)
+#
+# Hyprland (~/.config/hypr/bindings.conf):
 #   bind = SUPER, bracketright, exec, /path/to/vibe-key-cycle.sh next
 #   bind = SUPER, bracketleft,  exec, /path/to/vibe-key-cycle.sh prev
+#
+# Sway (~/.config/sway/config):
+#   bindsym $mod+bracketright exec /path/to/vibe-key-cycle.sh next
+#   bindsym $mod+bracketleft  exec /path/to/vibe-key-cycle.sh prev
 
 ACTION="${1:-next}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Get active window title
-TITLE=$(hyprctl activewindow -j | jq -r '.title // ""')
+source "$SCRIPT_DIR/lib/compositor.sh"
 
-# Check if it's a vibe window (title format: "vibe - window-1")
-if [[ "$TITLE" != vibe\ -\ * ]]; then
-    exit 0
-fi
-
-# Extract config name from title
-CONFIG="${TITLE#vibe - }"
-
+CONFIG=$(get_focused_vibe_config)
 if [[ -z "$CONFIG" ]]; then
     exit 0
 fi
 
-# Cycle the shader
 "$SCRIPT_DIR/cycle-shader.sh" "$CONFIG" "$ACTION"
