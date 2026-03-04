@@ -81,13 +81,14 @@ def main():
         try:
             mtime = os.path.getmtime(SPECIES_FILE)
             if mtime > last_mtime:
-                last_mtime = mtime
                 atlas_row = parse_species_file(SPECIES_FILE)
-                if atlas_row is not None:
-                    now = time.time()
-                    if now - last_cry_time >= DEBOUNCE:
-                        play_cry(atlas_row)
-                        last_cry_time = now
+                if atlas_row is None:
+                    continue
+                last_mtime = mtime
+                now = time.time()
+                if now - last_cry_time >= DEBOUNCE:
+                    play_cry(atlas_row)
+                    last_cry_time = now
         except FileNotFoundError:
             pass
         except KeyboardInterrupt:
