@@ -10,9 +10,30 @@ _[Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vi
 
 This is the [Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vibe](https://github.com/TornaxO7/vibe). The `ht` branch contains the following changes on top of upstream `main`:
 
-| Change | Description | Contributed back? |
-|--------|-------------|-------------------|
-| Click-to-interact Pokemon shader support | Added support for interactive shader elements | No |
+### Changelog
+
+#### Features
+- **18 custom WGSL shaders** — aurora, cluster, deep_sea, event_horizon, grass, liquid, mandelbrot_light, monolith, nebula, plasma, pokemon_grass, pokemon_grass_3d, singularity, solar_system, starfield, tesseract, vortex, waveform
+- **Click-to-interact Pokemon shader** — `iMouseClick` (vec4f, binding 8) and `iLocalTime` (binding 9) uniforms with GPU pixel readback for species identification. Writes click data to `/tmp/vibe-click` and species to `/tmp/vibe-click-species`
+- **BPM detection** — Spectral flux + autocorrelation algorithm with median smoothing. Exposes `iBPM` uniform (binding 4) to shaders and writes BPM to `/tmp/vibe-bpm` for Waybar integration
+- **4-color palette system** — Configurable via `~/.config/vibe/colors.toml` with live file-watching reload. Exposes `iColors` uniform (binding 5) with fallback defaults
+
+#### Fixes
+- **AMD GPU compatibility** — Prefer Bgra8Unorm/Rgba8Unorm surface format
+- **Audio capture** — Use input device (monitor source) instead of output device
+- **Shader load flash** — Start normalize_factor low to prevent blinding flash on shader load
+
+#### Utilities (`utils/`)
+- **`cycle-shader.sh`** — Cycle through shaders for any output/window config (next/prev/by-name)
+- **`vibe-key-cycle.sh`** — Hyprland keybinding helper that cycles shaders on the focused vibe window
+- **`randomize-colors.sh`** — Randomize the 4-color palette (keybinding-friendly)
+- **`pokemon-click-cry.py`** — Click-triggered Pokemon cry daemon (watches `/tmp/vibe-click-species`)
+- **`pokemon-cries-daemon.sh`** — Ambient random Pokemon cries every 60-180s
+- **`cluster-status-feeder.sh`** — Feeds live Kubernetes cluster metrics (CPU/GPU/memory) into `cluster.wgsl` shader constants
+
+#### Documentation
+- **[SHADER_WRITING.md](./SHADER_WRITING.md)** — 1000+ line comprehensive WGSL shader development guide covering uniforms, audio reactivity, visual techniques, and performance optimization
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Fork management, branch conventions, and contribution guidelines
 
 ### Branch Strategy
 
