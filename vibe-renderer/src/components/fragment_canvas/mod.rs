@@ -1,8 +1,10 @@
 use super::{Component, ShaderCode, ShaderCodeError};
 use crate::{components::ComponentAudio, Renderable, Renderer};
 use chrono::Timelike;
+#[cfg(not(target_arch = "wasm32"))]
 use pollster::FutureExt;
 use std::borrow::Cow;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use vibe_audio::{
     fetcher::Fetcher, BarProcessor, BarProcessorConfig, BpmDetector, BpmDetectorConfig,
@@ -276,17 +278,28 @@ impl FragmentCanvas {
                     }
                 };
 
-                let err_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-                let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("Fragment canvas fragment module"),
-                    source: shader_source,
-                });
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let err_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+                    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Fragment canvas fragment module"),
+                        source: shader_source,
+                    });
 
-                if let Some(err) = err_scope.pop().block_on() {
-                    return Err(ShaderCodeError::ParseError(err));
+                    if let Some(err) = err_scope.pop().block_on() {
+                        return Err(ShaderCodeError::ParseError(err));
+                    }
+
+                    module
                 }
 
-                module
+                #[cfg(target_arch = "wasm32")]
+                {
+                    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Fragment canvas fragment module"),
+                        source: shader_source,
+                    })
+                }
             };
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -430,8 +443,11 @@ impl<F: Fetcher> ComponentAudio<F> for FragmentCanvas {
         queue.write_buffer(&self.ibpm, 0, bytemuck::bytes_of(&bpm));
 
         // Write BPM to file for external tools (waybar, etc.)
-        if let Ok(mut file) = std::fs::File::create("/tmp/vibe-bpm") {
-            let _ = writeln!(file, "{:.0}", bpm);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Ok(mut file) = std::fs::File::create("/tmp/vibe-bpm") {
+                let _ = writeln!(file, "{:.0}", bpm);
+            }
         }
     }
 }
@@ -452,10 +468,13 @@ impl Component for FragmentCanvas {
         queue.write_buffer(&self.itime, 0, bytemuck::bytes_of(&new_time));
 
         // Write current wall-clock time as hours since midnight
-        let now = chrono::Local::now();
-        let local_time =
-            now.hour() as f32 + now.minute() as f32 / 60.0 + now.second() as f32 / 3600.0;
-        queue.write_buffer(&self.ilocaltime, 0, bytemuck::bytes_of(&local_time));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let now = chrono::Local::now();
+            let local_time =
+                now.hour() as f32 + now.minute() as f32 / 60.0 + now.second() as f32 / 3600.0;
+            queue.write_buffer(&self.ilocaltime, 0, bytemuck::bytes_of(&local_time));
+        }
     }
 
     fn update_mouse_position(&mut self, queue: &wgpu::Queue, new_pos: (f32, f32)) {
@@ -488,6 +507,7 @@ impl Component for FragmentCanvas {
         // Write click data atomically for external tools.
         // File format: key=value pairs, one per line.
         if pos.0 >= 0.0 {
+            #[cfg(not(target_arch = "wasm32"))]
             if let Ok(mut f) = std::fs::File::create("/tmp/vibe-click") {
                 let _ = write!(
                     f,
@@ -570,6 +590,7 @@ impl Component for FragmentCanvas {
             if red > 0 {
                 // Hit! Decode entity_id and write to species file.
                 let species = (red - 1) as i32;
+                #[cfg(not(target_arch = "wasm32"))]
                 if let Ok(mut f) = std::fs::File::create("/tmp/vibe-click-species") {
                     let _ = write!(f, "species={}\n", species);
                 }
