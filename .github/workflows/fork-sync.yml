@@ -2,7 +2,7 @@ name: Fork Sync
 
 on:
   schedule:
-    - cron: '0 7 * * 1'
+    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       skip_rebase:
