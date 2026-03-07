@@ -161,8 +161,8 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     );
 
     // Look-at camera
-    let target = vec3<f32>(0.0, 0.0, 0.0);
-    let fwd = normalize(target - cam_pos);
+    let look_at = vec3<f32>(0.0, 0.0, 0.0);
+    let fwd = normalize(look_at - cam_pos);
     let world_up = vec3<f32>(0.0, 1.0, 0.0);
     let right = normalize(cross(fwd, world_up));
     let up = cross(right, fwd);
