@@ -88,16 +88,64 @@ fn get_normal(p: vec3<f32>, power: f32) -> vec3<f32> {
     ));
 }
 
-// ---- Camera path: smooth curve through the Mandelbulb interior ----
+// ---- BPM-synced camera waypoints inside the Mandelbulb ----
+// Each waypoint is visited on the beat; camera lerps smoothly between them
 
-fn camera_path(t: f32) -> vec3<f32> {
-    // Lissajous-like path that stays inside the fractal bulb
-    let r = 0.4 + 0.15 * sin(t * 0.7);
-    return vec3<f32>(
-        r * sin(t * 0.3) * cos(t * 0.2),
-        r * cos(t * 0.25) * sin(t * 0.15),
-        r * sin(t * 0.35) * cos(t * 0.3)
+const NUM_WAYPOINTS: i32 = 16;
+
+fn waypoint(idx: i32) -> vec3<f32> {
+    // Hand-tuned positions inside the Mandelbulb (r < 0.5 stays interior)
+    let i = idx % NUM_WAYPOINTS;
+    if i == 0  { return vec3<f32>( 0.00,  0.00,  0.35); }
+    if i == 1  { return vec3<f32>( 0.25,  0.15,  0.20); }
+    if i == 2  { return vec3<f32>( 0.35,  0.25, -0.05); }
+    if i == 3  { return vec3<f32>( 0.20,  0.40, -0.15); }
+    if i == 4  { return vec3<f32>(-0.05,  0.35, -0.25); }
+    if i == 5  { return vec3<f32>(-0.25,  0.20, -0.30); }
+    if i == 6  { return vec3<f32>(-0.35,  0.00, -0.15); }
+    if i == 7  { return vec3<f32>(-0.30, -0.15,  0.10); }
+    if i == 8  { return vec3<f32>(-0.15, -0.30,  0.25); }
+    if i == 9  { return vec3<f32>( 0.05, -0.35,  0.30); }
+    if i == 10 { return vec3<f32>( 0.25, -0.25,  0.20); }
+    if i == 11 { return vec3<f32>( 0.35, -0.10,  0.00); }
+    if i == 12 { return vec3<f32>( 0.30,  0.10, -0.20); }
+    if i == 13 { return vec3<f32>( 0.10,  0.30, -0.30); }
+    if i == 14 { return vec3<f32>(-0.15,  0.25, -0.20); }
+    return vec3<f32>(-0.10,  0.10,  0.15);
+}
+
+// Smooth cubic hermite interpolation (ease in/out between beats)
+fn smoothlerp(a: vec3<f32>, b: vec3<f32>, t: f32) -> vec3<f32> {
+    let s = t * t * (3.0 - 2.0 * t);  // smoothstep curve
+    return mix(a, b, s);
+}
+
+// Catmull-Rom spline for smooth path through 4 waypoints
+fn catmull_rom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    return 0.5 * (
+        (2.0 * p1) +
+        (-p0 + p2) * t +
+        (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
+        (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
     );
+}
+
+fn camera_path(beat: f32) -> vec3<f32> {
+    // Each beat advances one segment over 4 beats (quarter note = one waypoint)
+    let beats_per_segment = 4.0;
+    let segment_beat = beat / beats_per_segment;
+    let seg = i32(floor(segment_beat));
+    let frac = fract(segment_beat);
+
+    // Four waypoints for Catmull-Rom
+    let p0 = waypoint(seg - 1);
+    let p1 = waypoint(seg);
+    let p2 = waypoint(seg + 1);
+    let p3 = waypoint(seg + 2);
+
+    return catmull_rom(p0, p1, p2, p3, frac);
 }
 
 // ---- Volumetric fog / god rays ----
@@ -153,17 +201,20 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     // Audio-reactive power
     let power = 8.0 + sin(iTime * 0.12) * 1.0 + bass * 1.5;
 
-    // Camera on interior path
-    let speed = 0.06;
-    let t_cam = iTime * speed;
-    let cam_pos = camera_path(t_cam);
+    // BPM-driven beat counter — all movement syncs to this
+    let bpm = max(iBPM, 60.0);
+    let beat = iTime * bpm / 60.0;
 
-    // Look direction: slightly ahead on the path + gentle wander
-    let look_ahead = camera_path(t_cam + 0.5);
+    // Camera on BPM-synced interior path
+    let cam_pos = camera_path(beat);
+
+    // Look direction: one beat ahead on the spline for smooth forward vector
+    let look_ahead = camera_path(beat + 1.0);
+    // Gentle wander also synced to beat subdivisions
     let wander = vec3<f32>(
-        sin(iTime * 0.13) * 0.1,
-        cos(iTime * 0.11) * 0.08,
-        sin(iTime * 0.09) * 0.1
+        sin(beat * PI * 0.5) * 0.06,
+        cos(beat * PI * 0.37) * 0.05,
+        sin(beat * PI * 0.29) * 0.06
     );
     let fwd = normalize(look_ahead - cam_pos + wander);
 
@@ -172,8 +223,8 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     var right = normalize(cross(fwd, world_up));
     let up = cross(right, fwd);
 
-    // Subtle roll
-    let roll = sin(iTime * 0.07) * 0.1;
+    // Roll synced to beat — gentle sway every 8 beats
+    let roll = sin(beat * PI / 8.0) * 0.12;
     let rd_raw = normalize(fwd * 1.6 + right * uv.x + up * uv.y);
     let rd = rotZ(rd_raw, roll);
 
