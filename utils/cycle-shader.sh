@@ -21,6 +21,7 @@ SHADERS=(
     "grass.wgsl"
     "liquid.wgsl"
     "mandelbrot_light.wgsl"
+    "mandelbulb.wgsl"
     "monolith.wgsl"
     "nebula.wgsl"
     "plasma.wgsl"
