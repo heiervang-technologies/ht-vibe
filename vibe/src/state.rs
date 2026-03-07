@@ -225,12 +225,14 @@ impl OutputHandler for State {
                     config
                 }
                 Err(err) => {
-                    error!(
-                        "Couldn't load config of output '{}'. Skipping output:{:?}",
+                    warn!(
+                        "Couldn't parse config for output '{}': {:?}. Falling back to default config.",
                         name, err
                     );
-
-                    return;
+                    OutputConfig {
+                        enable: true,
+                        components: vec![self.default_component.clone()],
+                    }
                 }
             },
             None => match OutputConfig::new(&info, self.default_component.clone()) {
