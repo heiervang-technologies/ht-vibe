@@ -23,6 +23,7 @@ SHADERS=(
     "mandelbrot_light.wgsl"
     "mandelbulb.wgsl"
     "mandelbulb_interior.wgsl"
+    "mandelbulb_dive.wgsl"
     "monolith.wgsl"
     "nebula.wgsl"
     "plasma.wgsl"
