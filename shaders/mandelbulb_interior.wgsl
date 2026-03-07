@@ -133,8 +133,8 @@ fn catmull_rom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f3
 }
 
 fn camera_path(beat: f32) -> vec3<f32> {
-    // Each beat advances one segment over 4 beats (quarter note = one waypoint)
-    let beats_per_segment = 4.0;
+    // Each segment spans 16 beats (4 bars at 4/4) for slow, meditative drift
+    let beats_per_segment = 16.0;
     let segment_beat = beat / beats_per_segment;
     let seg = i32(floor(segment_beat));
     let frac = fract(segment_beat);
@@ -205,16 +205,16 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let bpm = max(iBPM, 60.0);
     let beat = iTime * bpm / 60.0;
 
-    // Camera on BPM-synced interior path
+    // Camera on BPM-synced interior path (16 beats per waypoint = very slow drift)
     let cam_pos = camera_path(beat);
 
-    // Look direction: one beat ahead on the spline for smooth forward vector
-    let look_ahead = camera_path(beat + 1.0);
-    // Gentle wander also synced to beat subdivisions
+    // Look direction: half a beat ahead for gentle forward vector
+    let look_ahead = camera_path(beat + 0.5);
+    // Very subtle wander synced to bars (every 16 beats)
     let wander = vec3<f32>(
-        sin(beat * PI * 0.5) * 0.06,
-        cos(beat * PI * 0.37) * 0.05,
-        sin(beat * PI * 0.29) * 0.06
+        sin(beat * PI / 16.0) * 0.02,
+        cos(beat * PI / 12.0) * 0.015,
+        sin(beat * PI / 20.0) * 0.02
     );
     let fwd = normalize(look_ahead - cam_pos + wander);
 
@@ -223,8 +223,8 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     var right = normalize(cross(fwd, world_up));
     let up = cross(right, fwd);
 
-    // Roll synced to beat — gentle sway every 8 beats
-    let roll = sin(beat * PI / 8.0) * 0.12;
+    // Roll synced to beat — very gentle sway every 32 beats
+    let roll = sin(beat * PI / 32.0) * 0.06;
     let rd_raw = normalize(fwd * 1.6 + right * uv.x + up * uv.y);
     let rd = rotZ(rd_raw, roll);
 
