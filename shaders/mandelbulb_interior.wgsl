@@ -1,5 +1,5 @@
 // mandelbulb_interior.wgsl - Camera flying through the interior of a Mandelbulb
-// Smooth BPM-synced waypoint traversal, audio-reactive glow and inflation
+// Smooth BPM-synced waypoint traversal, spatial inflate/deflate
 // Colors configurable via ~/.config/vibe/colors.toml
 
 const PI: f32 = 3.14159265359;
@@ -30,13 +30,30 @@ fn rotZ(p: vec3<f32>, a: f32) -> vec3<f32> {
     return vec3<f32>(p.x * c - p.y * s, p.x * s + p.y * c, p.z);
 }
 
-// ---- Mandelbulb SDF ----
+// ---- Spatial inflation field ----
+// Uses the 4D fractal coordinate (final iterate xyz + iteration depth)
+// Returns [-1, 1]: positive = inflate, negative = deflate, centered around 0
 
-fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
+fn spatial_inflate(z_final: vec3<f32>, iter_depth: f32) -> f32 {
+    let w = iter_depth * 0.3;
+    let field = sin(z_final.x * 3.7 + w * 2.1)
+              * cos(z_final.y * 4.3 - w * 1.7)
+              * sin(z_final.z * 2.9 + w * 3.3)
+              + 0.5 * sin(z_final.x * 7.1 + z_final.z * 5.3)
+              * cos(z_final.y * 6.7 + w * 4.1);
+    return clamp(field * 0.7, -1.0, 1.0);
+}
+
+// ---- Mandelbulb SDF ----
+// Returns vec3(distance, orbit_trap, inflate_direction)
+
+fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
     var z = pos;
     var dr: f32 = 1.0;
     var r: f32 = 0.0;
     var trap: f32 = 1e10;
+    var last_z = pos;
+    var depth: f32 = 0.0;
 
     for (var i = 0; i < 10; i++) {
         r = length(z);
@@ -60,28 +77,32 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
         let d_origin = length(z);
         let d_axis = min(abs(z.x), min(abs(z.y), abs(z.z)));
         trap = min(trap, min(d_origin, d_axis * 2.0));
+        last_z = z;
+        depth = f32(i);
     }
 
     let dist = 0.5 * log(r) * r / dr;
-    return vec2<f32>(dist, trap);
+    let inflate_dir = spatial_inflate(last_z, depth);
+    return vec3<f32>(dist, trap, inflate_dir);
 }
 
-// ---- Scene with bass inflation (inverted for interior) ----
+// ---- Scene with spatial inflation (inverted for interior) ----
 
-fn scene(p: vec3<f32>, power: f32, inflate: f32) -> vec2<f32> {
+fn scene(p: vec3<f32>, power: f32, bass: f32) -> vec2<f32> {
     let mb = mandelbulb(p, power);
+    let inflate = mb.z * bass * 0.01;
     return vec2<f32>(-(mb.x - inflate), mb.y);
 }
 
 // ---- Normal ----
 
-fn get_normal(p: vec3<f32>, power: f32, inflate: f32) -> vec3<f32> {
+fn get_normal(p: vec3<f32>, power: f32, bass: f32) -> vec3<f32> {
     let e = vec2<f32>(0.0005, 0.0);
-    let d = scene(p, power, inflate).x;
+    let d = scene(p, power, bass).x;
     return normalize(vec3<f32>(
-        scene(p + e.xyy, power, inflate).x - d,
-        scene(p + e.yxy, power, inflate).x - d,
-        scene(p + e.yyx, power, inflate).x - d
+        scene(p + e.xyy, power, bass).x - d,
+        scene(p + e.yxy, power, bass).x - d,
+        scene(p + e.yyx, power, bass).x - d
     ));
 }
 
@@ -109,7 +130,6 @@ fn waypoint(idx: i32) -> vec3<f32> {
     return vec3<f32>(-0.10,  0.10,  0.15);
 }
 
-// Catmull-Rom spline
 fn catmull_rom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
     let t2 = t * t;
     let t3 = t2 * t;
@@ -137,7 +157,7 @@ fn camera_path(beat: f32) -> vec3<f32> {
 
 // ---- Volumetric fog ----
 
-fn volumetric_fog(ro: vec3<f32>, rd: vec3<f32>, max_t: f32, power: f32, inflate: f32, bass: f32) -> vec3<f32> {
+fn volumetric_fog(ro: vec3<f32>, rd: vec3<f32>, max_t: f32, power: f32, bass: f32) -> vec3<f32> {
     var fog = vec3<f32>(0.0);
     let steps = 16;
     let step_size = min(max_t, 3.0) / f32(steps);
@@ -183,9 +203,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let col_glow = iColors.color3.xyz;
     let col_accent = iColors.color4.xyz;
 
-    // Fixed power, bass inflation
     let power = 8.0;
-    let inflate = bass * 0.02;
 
     // BPM-driven beat counter
     let bpm = max(iBPM, 60.0);
@@ -194,7 +212,6 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     // Camera on BPM-synced interior path
     let cam_pos = camera_path(beat);
 
-    // Look direction: half a beat ahead for smooth forward vector
     let look_ahead = camera_path(beat + 0.5);
     let wander = vec3<f32>(
         sin(beat * PI / 16.0) * 0.02,
@@ -203,12 +220,10 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     );
     let fwd = normalize(look_ahead - cam_pos + wander);
 
-    // Camera matrix
     let world_up = vec3<f32>(0.0, 1.0, 0.0);
     var right = normalize(cross(fwd, world_up));
     let up = cross(right, fwd);
 
-    // Roll synced to beat
     let roll = sin(beat * PI / 32.0) * 0.06;
     let rd_raw = normalize(fwd * 1.6 + right * uv.x + up * uv.y);
     let rd = rotZ(rd_raw, roll);
@@ -223,6 +238,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     for (var i = 0; i < MAX_STEPS; i++) {
         let p = cam_pos + rd * t;
         let mb = mandelbulb(p, power);
+        let inflate = mb.z * bass * 0.01;
         let d = abs(mb.x - inflate);
         trap_val = mb.y;
 
@@ -242,7 +258,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     if hit {
         let p = cam_pos + rd * t;
-        let n = get_normal(p, power, inflate);
+        let n = get_normal(p, power, bass);
 
         // Interior lighting
         let light1 = cam_pos + vec3<f32>(0.1, 0.15, 0.05);
@@ -260,26 +276,21 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
         let half_dir = normalize(to_light1 - rd);
         let spec = pow(max(dot(n, half_dir), 0.0), 48.0) * atten1;
-
         let fresnel = pow(1.0 - abs(dot(n, -rd)), 3.0);
 
-        // Orbit trap coloring
         let trap_t = smoothstep(0.0, 1.5, trap_val);
         var surface_col = mix(col_deep * 1.5, col_wall, trap_t);
         surface_col = mix(surface_col, col_accent, mid * 0.2);
 
-        // Bioluminescent crevice glow — audio reactive
         let crevice_glow = exp(-trap_val * 3.0) * (0.3 + bass * 0.7);
         let bio_col = mix(col_glow, col_accent, sin(beat * PI / 4.0 + trap_val * 5.0) * 0.5 + 0.5);
 
-        // Combine
         let ambient = 0.04;
         color = surface_col * (ambient + diff1 * 0.8 + diff2 * 0.4);
         color += col_accent * spec * (0.6 + treble * 0.8);
         color += col_glow * fresnel * (0.15 + bass * 0.3);
         color += bio_col * crevice_glow;
 
-        // Distance fog
         let fog_t = smoothstep(0.0, MAX_DIST * 0.5, t);
         color = mix(color, col_deep * 0.05, fog_t);
     } else {
@@ -291,7 +302,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     }
 
     // Volumetric fog
-    let vol = volumetric_fog(cam_pos, rd, t, power, inflate, bass);
+    let vol = volumetric_fog(cam_pos, rd, t, power, bass);
     color += vol * 0.6;
 
     // Particles
@@ -315,10 +326,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         }
     }
 
-    // Reinhard tone mapping
     color = color / (color + vec3<f32>(1.0));
-
-    // Vignette
     color *= 1.0 - dot(uv, uv) * 0.4;
 
     return vec4<f32>(color * BRIGHTNESS, 1.0);

@@ -1,5 +1,5 @@
 // mandelbulb.wgsl - Raymarched Mandelbulb fractal in 3D
-// Smooth BPM-synced orbit camera, audio-reactive glow and inflation
+// Smooth BPM-synced orbit camera, audio-reactive glow and spatial inflation
 // Colors configurable via ~/.config/vibe/colors.toml
 
 const PI: f32 = 3.14159265359;
@@ -25,14 +25,37 @@ fn rotX(p: vec3<f32>, a: f32) -> vec3<f32> {
     return vec3<f32>(p.x, p.y * c - p.z * s, p.y * s + p.z * c);
 }
 
-// ---- Mandelbulb SDF ----
-// Returns vec2(distance, orbit_trap) where orbit_trap is used for coloring
+// ---- Spatial inflation field ----
+// Uses the 4D fractal coordinate (final iterate xyz + iteration depth)
+// to smoothly select which regions inflate vs deflate.
+// Returns a value in [-1, 1]: positive = inflate, negative = deflate.
 
-fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
+fn spatial_inflate(z_final: vec3<f32>, iter_depth: f32) -> f32 {
+    // 4D coordinate: xyz of final iterate + iteration count as 4th axis
+    let w = iter_depth * 0.3;
+
+    // Smooth 4D-based selection using overlapping sinusoids at different scales
+    let field = sin(z_final.x * 3.7 + w * 2.1)
+              * cos(z_final.y * 4.3 - w * 1.7)
+              * sin(z_final.z * 2.9 + w * 3.3)
+              + 0.5 * sin(z_final.x * 7.1 + z_final.z * 5.3)
+              * cos(z_final.y * 6.7 + w * 4.1);
+
+    // Normalize to [-1, 1] with smooth clamping
+    return clamp(field * 0.7, -1.0, 1.0);
+}
+
+// ---- Mandelbulb SDF ----
+// Returns vec3(distance, orbit_trap, inflate_direction)
+// inflate_direction: [-1, 1] spatial field for inflate/deflate
+
+fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
     var z = pos;
     var dr: f32 = 1.0;
     var r: f32 = 0.0;
     var trap: f32 = 1e10;
+    var last_z = pos;
+    var depth: f32 = 0.0;
 
     for (var i = 0; i < 12; i++) {
         r = length(z);
@@ -55,39 +78,44 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
 
         let trap_dist = min(length(z.xy), min(length(z.xz), length(z.yz)));
         trap = min(trap, trap_dist);
+        last_z = z;
+        depth = f32(i);
     }
 
     let dist = 0.5 * log(r) * r / dr;
-    return vec2<f32>(dist, trap);
+    let inflate_dir = spatial_inflate(last_z, depth);
+    return vec3<f32>(dist, trap, inflate_dir);
 }
 
-// ---- Scene with bass inflation ----
+// ---- Scene with spatial inflation ----
 
-fn scene(p: vec3<f32>, power: f32, inflate: f32) -> vec2<f32> {
+fn scene(p: vec3<f32>, power: f32, bass: f32) -> vec2<f32> {
     let mb = mandelbulb(p, power);
+    // Max inflation = 0.01 (half of previous 0.02), spatially modulated
+    let inflate = mb.z * bass * 0.01;
     return vec2<f32>(mb.x - inflate, mb.y);
 }
 
 // ---- Normal estimation ----
 
-fn get_normal(p: vec3<f32>, power: f32, inflate: f32) -> vec3<f32> {
+fn get_normal(p: vec3<f32>, power: f32, bass: f32) -> vec3<f32> {
     let e = vec2<f32>(0.0005, 0.0);
-    let d = scene(p, power, inflate).x;
+    let d = scene(p, power, bass).x;
     return normalize(vec3<f32>(
-        scene(p + e.xyy, power, inflate).x - d,
-        scene(p + e.yxy, power, inflate).x - d,
-        scene(p + e.yyx, power, inflate).x - d
+        scene(p + e.xyy, power, bass).x - d,
+        scene(p + e.yxy, power, bass).x - d,
+        scene(p + e.yyx, power, bass).x - d
     ));
 }
 
 // ---- AO ----
 
-fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32, inflate: f32) -> f32 {
+fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32, bass: f32) -> f32 {
     var occ: f32 = 0.0;
     var scale: f32 = 1.0;
     for (var i = 1; i <= 5; i++) {
         let h = 0.01 + 0.06 * f32(i);
-        let d = scene(p + n * h, power, inflate).x;
+        let d = scene(p + n * h, power, bass).x;
         occ += (h - d) * scale;
         scale *= 0.7;
     }
@@ -141,17 +169,13 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let col_glow = iColors.color3.xyz;
     let col_accent = iColors.color4.xyz;
 
-    // Fixed power — no audio jitter
     let power = 8.0;
-
-    // Bass inflation — slightly expands the fractal shape
-    let inflate = bass * 0.02;
 
     // BPM-driven beat counter
     let bpm = max(iBPM, 60.0);
     let beat = iTime * bpm / 60.0;
 
-    // Camera orbit — smooth BPM-synced, one full orbit every 64 beats (16 bars)
+    // Camera orbit — smooth BPM-synced
     let cam_angle = beat * TAU / 64.0;
     let cam_elev = 0.3 + sin(beat * PI / 32.0) * 0.15;
     let cam_dist = 2.8;
@@ -162,7 +186,6 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         sin(cam_angle) * cos(cam_elev) * cam_dist
     );
 
-    // Look-at camera
     let look_at = vec3<f32>(0.0, 0.0, 0.0);
     let fwd = normalize(look_at - cam_pos);
     let world_up = vec3<f32>(0.0, 1.0, 0.0);
@@ -178,7 +201,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     for (var i = 0; i < MAX_STEPS; i++) {
         let p = cam_pos + rd * t;
-        let result = scene(p, power, inflate);
+        let result = scene(p, power, bass);
         let d = result.x;
         trap_val = result.y;
 
@@ -196,36 +219,29 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     if hit {
         let p = cam_pos + rd * t;
-        let n = get_normal(p, power, inflate);
+        let n = get_normal(p, power, bass);
 
-        // Lighting — smooth rotation synced to beat
+        // Lighting
         let light_angle = beat * TAU / 48.0;
         let light1_dir = normalize(vec3<f32>(
-            cos(light_angle) * 0.8,
-            0.9,
-            sin(light_angle) * 0.5
+            cos(light_angle) * 0.8, 0.9, sin(light_angle) * 0.5
         ));
         let light2_dir = normalize(vec3<f32>(-0.6, 0.3, 0.7));
 
         let diff1 = max(dot(n, light1_dir), 0.0);
         let diff2 = max(dot(n, light2_dir), 0.0) * 0.4;
 
-        // Specular — treble brightens highlights
         let half_dir = normalize(light1_dir - rd);
         let spec = pow(max(dot(n, half_dir), 0.0), 32.0);
 
-        // Fresnel rim — bass intensifies
         let fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
 
-        // AO
-        let ao = ambient_occlusion(p, n, power, inflate);
+        let ao = ambient_occlusion(p, n, power, bass);
 
-        // Orbit trap coloring
         let trap_t = smoothstep(0.0, 1.2, trap_val);
         var surface_col = mix(col_deep * 1.2, col_base, trap_t);
         surface_col = mix(surface_col, col_accent, mid * 0.25);
 
-        // Combine lighting
         let ambient = 0.08;
         let lit = surface_col * (ambient + diff1 * 0.7 + diff2) * ao;
         let specular = col_accent * spec * (0.5 + treble * 1.0);
@@ -233,28 +249,21 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
         color = lit + specular + rim;
 
-        // Distance fog
         let fog = smoothstep(MAX_DIST * 0.3, MAX_DIST, t);
         color = mix(color, vec3<f32>(0.0), fog);
     } else {
-        // Background starfield
         color = starfield(rd, treble);
 
-        // Volumetric glow — bass intensifies
         let glow_amount = steps_taken / f32(MAX_STEPS);
         let glow = pow(glow_amount, 2.5) * (0.3 + bass * 0.6);
         color += col_glow * glow * 0.5;
     }
 
-    // Inner glow — bass pulse
     let center_dist = length(uv);
     let inner_pulse = exp(-center_dist * 4.0) * bass * 0.15;
     color += col_glow * inner_pulse;
 
-    // Reinhard tone mapping
     color = color / (color + vec3<f32>(1.0));
-
-    // Subtle vignette
     color *= 1.0 - dot(uv, uv) * 0.3;
 
     return vec4<f32>(color * BRIGHTNESS, 1.0);
