@@ -36,11 +36,11 @@ fn rotZ(p: vec3<f32>, a: f32) -> vec3<f32> {
 
 fn spatial_inflate(z_final: vec3<f32>, iter_depth: f32) -> f32 {
     let w = iter_depth * 0.3;
-    let field = sin(z_final.x * 0.8 + w * 0.5)
-              * cos(z_final.y * 0.9 - w * 0.4)
-              * sin(z_final.z * 0.7 + w * 0.6)
-              + 0.5 * sin(z_final.x * 1.3 + z_final.z * 1.1)
-              * cos(z_final.y * 1.2 + w * 0.8);
+    let field = sin(z_final.x * 0.08 + w * 0.05)
+              * cos(z_final.y * 0.09 - w * 0.04)
+              * sin(z_final.z * 0.07 + w * 0.06)
+              + 0.5 * sin(z_final.x * 0.13 + z_final.z * 0.11)
+              * cos(z_final.y * 0.12 + w * 0.08);
     return clamp(field * 0.7, -1.0, 1.0);
 }
 
