@@ -41,7 +41,7 @@ fn spatial_inflate(z_final: vec3<f32>, iter_depth: f32) -> f32 {
               * sin(z_final.z * 0.07 + w * 0.06)
               + 0.5 * sin(z_final.x * 0.13 + z_final.z * 0.11)
               * cos(z_final.y * 0.12 + w * 0.08);
-    return clamp(field * 0.7, -1.0, 1.0);
+    return clamp(field * 0.7 + 0.3, -1.0, 1.0);
 }
 
 // ---- Mandelbulb SDF ----

@@ -42,7 +42,7 @@ fn spatial_inflate(z_final: vec3<f32>, iter_depth: f32) -> f32 {
               * cos(z_final.y * 0.12 + w * 0.08);
 
     // Normalize to [-1, 1] with smooth clamping
-    return clamp(field * 0.7, -1.0, 1.0);
+    return clamp(field * 0.7 + 0.3, -1.0, 1.0);
 }
 
 // ---- Mandelbulb SDF ----
