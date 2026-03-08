@@ -32,15 +32,15 @@ fn rotZ(p: vec3<f32>, a: f32) -> vec3<f32> {
 
 // ---- Spatial inflation field ----
 // Uses the 4D fractal coordinate (final iterate xyz + iteration depth)
-// Returns [-1, 1]: positive = inflate, negative = deflate, centered around 0
+// Smooth spatial inflation field based on world-space position.
+// Returns [0, 1]: regions that inflate with bass.
 
-fn spatial_inflate(z_final: vec3<f32>, iter_depth: f32) -> f32 {
-    let w = iter_depth * 0.3;
-    let field = sin(z_final.x * 0.08 + w * 0.05)
-              * cos(z_final.y * 0.09 - w * 0.04)
-              * sin(z_final.z * 0.07 + w * 0.06)
-              + 0.5 * sin(z_final.x * 0.13 + z_final.z * 0.11)
-              * cos(z_final.y * 0.12 + w * 0.08);
+fn spatial_inflate(world_pos: vec3<f32>) -> f32 {
+    let field = sin(world_pos.x * 3.0)
+              * cos(world_pos.y * 3.5)
+              * sin(world_pos.z * 2.8)
+              + 0.5 * sin(world_pos.x * 5.0 + world_pos.z * 4.0)
+              * cos(world_pos.y * 4.5);
     return clamp(field * 0.7 + 0.3, 0.0, 1.0);
 }
 
@@ -52,9 +52,6 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
     var dr: f32 = 1.0;
     var r: f32 = 0.0;
     var trap: f32 = 1e10;
-    var last_z = pos;
-    var depth: f32 = 0.0;
-
     for (var i = 0; i < 10; i++) {
         r = length(z);
         if r > 2.0 { break; }
@@ -77,12 +74,10 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
         let d_origin = length(z);
         let d_axis = min(abs(z.x), min(abs(z.y), abs(z.z)));
         trap = min(trap, min(d_origin, d_axis * 2.0));
-        last_z = z;
-        depth = f32(i);
     }
 
     let dist = 0.5 * log(r) * r / dr;
-    let inflate_dir = spatial_inflate(last_z, depth);
+    let inflate_dir = spatial_inflate(pos);
     return vec3<f32>(dist, trap, inflate_dir);
 }
 
