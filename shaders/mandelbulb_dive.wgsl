@@ -1,6 +1,6 @@
-// mandelbulb_dive.wgsl - Infinite zoom into Mandelbulb surface
-// Camera continuously moves forward and scales down, diving into fractal detail
-// All movement BPM-synced with smooth interpolation
+// mandelbulb_dive.wgsl - Spiral zoom into the Mandelbulb surface
+// Camera spirals inward centered on the bulb, diving into fractal detail
+// Smooth BPM-synced movement, audio-reactive glow and inflation
 // Colors configurable via ~/.config/vibe/colors.toml
 
 const PI: f32 = 3.14159265359;
@@ -67,44 +67,37 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
     return vec2<f32>(dist, trap);
 }
 
+// ---- Scene with inflation ----
+
+fn scene(p: vec3<f32>, power: f32, inflate: f32) -> vec2<f32> {
+    let mb = mandelbulb(p, power);
+    return vec2<f32>(mb.x - inflate, mb.y);
+}
+
 // ---- Normal ----
 
-fn get_normal(p: vec3<f32>, power: f32) -> vec3<f32> {
+fn get_normal(p: vec3<f32>, power: f32, inflate: f32) -> vec3<f32> {
     let e = vec2<f32>(0.0003, 0.0);
-    let d = mandelbulb(p, power).x;
+    let d = scene(p, power, inflate).x;
     return normalize(vec3<f32>(
-        mandelbulb(p + e.xyy, power).x - d,
-        mandelbulb(p + e.yxy, power).x - d,
-        mandelbulb(p + e.yyx, power).x - d
+        scene(p + e.xyy, power, inflate).x - d,
+        scene(p + e.yxy, power, inflate).x - d,
+        scene(p + e.yyx, power, inflate).x - d
     ));
 }
 
 // ---- AO ----
 
-fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32) -> f32 {
+fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32, inflate: f32) -> f32 {
     var occ: f32 = 0.0;
     var scale: f32 = 1.0;
     for (var i = 1; i <= 5; i++) {
         let h = 0.005 + 0.03 * f32(i);
-        let d = mandelbulb(p + n * h, power).x;
+        let d = scene(p + n * h, power, inflate).x;
         occ += (h - d) * scale;
         scale *= 0.7;
     }
     return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
-}
-
-// ---- Dive target: a point on the Mandelbulb surface to zoom toward ----
-// Slowly rotates the approach angle over many bars
-
-fn dive_direction(beat: f32) -> vec3<f32> {
-    // Approach angle drifts slowly — one full rotation every 128 beats (32 bars)
-    let angle_y = beat * TAU / 128.0;
-    let angle_x = sin(beat * PI / 64.0) * 0.4;
-
-    var dir = vec3<f32>(0.0, 0.0, 1.0);
-    dir = rotX(dir, angle_x);
-    dir = rotY(dir, angle_y);
-    return dir;
 }
 
 // ---- Main ----
@@ -121,55 +114,58 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let high_idx = n_freqs - 2u;
     let treble = (freqs[high_idx] + freqs[min(high_idx + 1u, n_freqs - 1u)]) / 2.0;
 
-    // Palette
+    // Palette — all 4 colors used distinctly:
+    // color1: primary surface lit by key light
+    // color2: deep crevice / shadow color
+    // color3: rim glow, volumetric haze, near-miss glow
+    // color4: specular highlights, hot spots, beat pulse accents
     let col_surface = iColors.color1.xyz;
     let col_deep = iColors.color2.xyz;
     let col_glow = iColors.color3.xyz;
     let col_accent = iColors.color4.xyz;
 
+    // Fixed power, bass inflation
+    let power = 8.0;
+    let inflate = bass * 0.02;
+
     // BPM-driven beat
     let bpm = max(iBPM, 60.0);
     let beat = iTime * bpm / 60.0;
 
-    // Audio-reactive power — subtle oscillation synced to 8-bar phrases
-    let power = 8.0 + sin(beat * PI / 32.0) * 0.8 + bass * 1.0;
-
-    // ---- Infinite zoom: exponential approach toward surface ----
-    // The zoom factor increases exponentially, BPM-synced
-    // Every 64 beats (16 bars), zoom resets to create infinite loop feel
+    // ---- Spiral zoom: camera orbits while closing in ----
+    // 64-beat cycle: spirals from distance 3.0 down to 1.25 (surface contact)
+    // then resets seamlessly
     let zoom_cycle = 64.0;
     let beat_in_cycle = beat % zoom_cycle;
-    let zoom_progress = beat_in_cycle / zoom_cycle;  // 0 to 1 over the cycle
+    let zoom_progress = beat_in_cycle / zoom_cycle;
 
-    // Exponential zoom: start far, end very close
-    let zoom_start = 2.5;
-    let zoom_end = 0.005;
-    let zoom = zoom_start * pow(zoom_end / zoom_start, zoom_progress);
+    // Smooth exponential approach — always aimed at origin (center of bulb)
+    let dist_far = 3.0;
+    let dist_near = 1.25;
+    let cam_dist = dist_far * pow(dist_near / dist_far, zoom_progress);
 
-    // Direction we're diving toward — drifts slowly
-    let dive_dir = dive_direction(beat);
+    // Spiral orbit — one full revolution per zoom cycle
+    let spiral_angle = beat * TAU / zoom_cycle;
+    // Elevation oscillates gently
+    let cam_elev = 0.25 + sin(beat * PI / 32.0) * 0.2;
 
-    // Surface point we're aiming at (on the Mandelbulb surface, approximately r=1.2)
-    let surface_point = dive_dir * 1.18;
+    let cam_pos = vec3<f32>(
+        cos(spiral_angle) * cos(cam_elev) * cam_dist,
+        sin(cam_elev) * cam_dist,
+        sin(spiral_angle) * cos(cam_elev) * cam_dist
+    );
 
-    // Camera position: offset from surface point by zoom distance
-    let cam_pos = surface_point + dive_dir * zoom;
-
-    // Forward direction: toward the surface point
-    let fwd = normalize(surface_point - cam_pos);
-
-    // Gentle pan synced to 4-bar phrases
-    let pan_x = sin(beat * PI / 16.0) * 0.03 * zoom;
-    let pan_y = cos(beat * PI / 12.0) * 0.02 * zoom;
+    // Always look at the origin (center of Mandelbulb)
+    let fwd = normalize(-cam_pos);
 
     // Camera matrix
     let world_up = vec3<f32>(0.0, 1.0, 0.0);
     var right = normalize(cross(fwd, world_up));
     let up = cross(right, fwd);
 
-    // Roll — very slow rotation every 32 bars
+    // Very slow roll — one turn every 128 beats
     let roll = beat * PI / 128.0;
-    let rd_base = normalize(fwd * 2.0 + right * (uv.x + pan_x) + up * (uv.y + pan_y));
+    let rd_base = normalize(fwd * 2.0 + right * uv.x + up * uv.y);
     let rd = rotZ(rd_base, roll);
 
     // ---- Raymarch ----
@@ -181,17 +177,17 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     for (var i = 0; i < MAX_STEPS; i++) {
         let p = cam_pos + rd * t;
-        let mb = mandelbulb(p, power);
-        let d = mb.x;
-        trap_val = mb.y;
+        let result = scene(p, power, inflate);
+        let d = result.x;
+        trap_val = result.y;
 
         min_dist = min(min_dist, d);
 
-        if d < SURFACE_DIST * zoom {
+        if d < SURFACE_DIST {
             hit = true;
             break;
         }
-        if t > MAX_DIST * zoom { break; }
+        if t > MAX_DIST { break; }
 
         t += d * 0.7;
         steps_taken += 1.0;
@@ -201,63 +197,70 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     if hit {
         let p = cam_pos + rd * t;
-        let n = get_normal(p, power);
+        let n = get_normal(p, power, inflate);
 
-        // Lighting
-        let light_dir = normalize(dive_dir + vec3<f32>(0.3, 0.5, 0.0));
+        // Key light — rotates with camera, slightly offset
+        let light_dir = normalize(cam_pos + vec3<f32>(0.5, 0.8, 0.0) - p);
         let diff = max(dot(n, light_dir), 0.0);
 
-        // Back-light for rim definition
-        let back_diff = max(dot(n, -dive_dir), 0.0) * 0.3;
+        // Fill light from opposite side — uses color2 tint
+        let fill_dir = normalize(-cam_pos + vec3<f32>(0.0, 0.3, 0.0) - p);
+        let fill = max(dot(n, fill_dir), 0.0) * 0.3;
 
-        // Specular
+        // Specular — color4 highlights, treble reactive
         let half_dir = normalize(light_dir - rd);
         let spec = pow(max(dot(n, half_dir), 0.0), 40.0);
 
-        // Fresnel
+        // Fresnel rim — color3, bass reactive
         let fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
 
         // AO
-        let ao = ambient_occlusion(p, n, power);
+        let ao = ambient_occlusion(p, n, power, inflate);
 
-        // Orbit trap coloring — deeper zoom reveals more color variation
+        // Surface coloring via orbit trap
+        // Close to surface features: color1 (surface), far/crevices: color2 (deep)
         let trap_t = smoothstep(0.0, 1.2, trap_val);
-        let depth_color_shift = fract(zoom_progress * 3.0);
         var surface_col = mix(col_deep * 1.3, col_surface, trap_t);
-        surface_col = mix(surface_col, col_accent, depth_color_shift * 0.2 + mid * 0.15);
 
-        // Combine
-        color = surface_col * (0.06 + diff * 0.7 + back_diff) * ao;
-        color += col_accent * spec * (0.5 + treble * 0.8);
-        color += col_glow * fresnel * (0.2 + bass * 0.4);
+        // Mid frequencies subtly shift surface toward accent
+        surface_col = mix(surface_col, col_accent, mid * 0.15);
 
-        // Crevice glow intensifies at deeper zoom
-        let crevice = exp(-trap_val * 4.0) * (0.2 + bass * 0.5) * (1.0 + zoom_progress);
-        color += mix(col_glow, col_accent, sin(beat * PI / 4.0) * 0.5 + 0.5) * crevice;
+        // Zoom depth shifts color temperature — deeper = more color2
+        surface_col = mix(surface_col, col_deep * 1.5, zoom_progress * 0.2);
+
+        // Combine lighting
+        color = surface_col * (0.06 + diff * 0.7 + fill) * ao;
+        color += col_accent * spec * (0.5 + treble * 0.8);        // color4 specular
+        color += col_glow * fresnel * (0.2 + bass * 0.4);         // color3 rim
+
+        // Crevice glow — color3 + color4 blend, bass reactive
+        let crevice = exp(-trap_val * 4.0) * (0.2 + bass * 0.5);
+        let crevice_col = mix(col_glow, col_accent, sin(beat * PI / 4.0) * 0.5 + 0.5);
+        color += crevice_col * crevice;
 
         // Distance fade
-        let fade = smoothstep(MAX_DIST * zoom, 0.0, t);
+        let fade = smoothstep(MAX_DIST, 0.0, t);
         color *= fade;
     } else {
-        // Background — volumetric near-miss glow
+        // Background — color3 near-miss glow, color2 base
         let glow_amount = steps_taken / f32(MAX_STEPS);
-        let proximity = exp(-min_dist * 15.0 / zoom) * 0.5;
+        let proximity = exp(-min_dist * 15.0) * 0.5;
         color = col_glow * proximity * (0.4 + bass * 0.4);
-        color += col_deep * glow_amount * 0.1;
+        color += col_deep * glow_amount * 0.08;
     }
 
-    // Beat pulse — subtle flash on each beat
+    // Beat pulse — color4 accent flash, bass reactive
     let beat_frac = fract(beat);
-    let beat_pulse = exp(-beat_frac * 6.0) * 0.08 * bass;
+    let beat_pulse = exp(-beat_frac * 6.0) * 0.06 * bass;
     color += col_accent * beat_pulse;
 
-    // Depth particles — scale with zoom
+    // Particles — color3 + color4 mix
     for (var i = 0; i < 3; i++) {
         let fi = f32(i);
         let particle_scale = 20.0 + fi * 12.0;
         let particle_uv = uv * particle_scale + vec2<f32>(
-            beat * (0.3 + fi * 0.15),
-            beat * (0.2 + fi * 0.1)
+            beat * (0.05 + fi * 0.02),
+            beat * (0.03 + fi * 0.015)
         );
         let cell = floor(particle_uv);
         let cell_frac = fract(particle_uv);
@@ -268,7 +271,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             let py = hash21(cell * 1.7 + fi * 53.0);
             let d = length(cell_frac - vec2<f32>(px, py));
             let bright = smoothstep(0.06, 0.0, d) * (0.1 + treble * 0.3);
-            let flicker = 0.6 + 0.4 * sin(beat * PI + h * 40.0);
+            let flicker = 0.6 + 0.4 * sin(beat * PI / 2.0 + h * 40.0);
             color += mix(col_glow, col_accent, h) * bright * flicker;
         }
     }
