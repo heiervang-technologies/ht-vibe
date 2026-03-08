@@ -31,23 +31,24 @@ fn rotZ(p: vec3<f32>, a: f32) -> vec3<f32> {
 }
 
 // ---- Spatial inflation field ----
-// Uses the 4D fractal coordinate (final iterate xyz + iteration depth)
 // Smooth spatial inflation field based on world-space position.
+// Beat traverses the 4th dimension — inflate regions shift with BPM.
 // Returns [0, 1]: regions that inflate with bass.
 
-fn spatial_inflate(world_pos: vec3<f32>) -> f32 {
-    let field = sin(world_pos.x * 3.0)
-              * cos(world_pos.y * 3.5)
-              * sin(world_pos.z * 2.8)
-              + 0.5 * sin(world_pos.x * 5.0 + world_pos.z * 4.0)
-              * cos(world_pos.y * 4.5);
+fn spatial_inflate(world_pos: vec3<f32>, beat: f32) -> f32 {
+    let w = beat * 0.15;
+    let field = sin(world_pos.x * 3.0 + w)
+              * cos(world_pos.y * 3.5 - w * 0.7)
+              * sin(world_pos.z * 2.8 + w * 1.2)
+              + 0.5 * sin(world_pos.x * 5.0 + world_pos.z * 4.0 + w * 0.5)
+              * cos(world_pos.y * 4.5 - w * 0.9);
     return clamp(field * 0.7 + 0.3, 0.0, 1.0);
 }
 
 // ---- Mandelbulb SDF ----
-// Returns vec3(distance, orbit_trap, inflate_direction)
+// Returns vec2(distance, orbit_trap)
 
-fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
+fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
     var z = pos;
     var dr: f32 = 1.0;
     var r: f32 = 0.0;
@@ -77,27 +78,26 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
     }
 
     let dist = 0.5 * log(r) * r / dr;
-    let inflate_dir = spatial_inflate(pos);
-    return vec3<f32>(dist, trap, inflate_dir);
+    return vec2<f32>(dist, trap);
 }
 
 // ---- Scene with spatial inflation (inverted for interior) ----
 
-fn scene(p: vec3<f32>, power: f32, bass: f32) -> vec2<f32> {
+fn scene(p: vec3<f32>, power: f32, bass: f32, beat: f32) -> vec2<f32> {
     let mb = mandelbulb(p, power);
-    let inflate = mb.z * bass * 0.01;
+    let inflate = spatial_inflate(p, beat) * bass * 0.01;
     return vec2<f32>(-(mb.x - inflate), mb.y);
 }
 
 // ---- Normal ----
 
-fn get_normal(p: vec3<f32>, power: f32, bass: f32) -> vec3<f32> {
+fn get_normal(p: vec3<f32>, power: f32, bass: f32, beat: f32) -> vec3<f32> {
     let e = vec2<f32>(0.0005, 0.0);
-    let d = scene(p, power, bass).x;
+    let d = scene(p, power, bass, beat).x;
     return normalize(vec3<f32>(
-        scene(p + e.xyy, power, bass).x - d,
-        scene(p + e.yxy, power, bass).x - d,
-        scene(p + e.yyx, power, bass).x - d
+        scene(p + e.xyy, power, bass, beat).x - d,
+        scene(p + e.yxy, power, bass, beat).x - d,
+        scene(p + e.yyx, power, bass, beat).x - d
     ));
 }
 
@@ -152,7 +152,7 @@ fn camera_path(beat: f32) -> vec3<f32> {
 
 // ---- Volumetric fog ----
 
-fn volumetric_fog(ro: vec3<f32>, rd: vec3<f32>, max_t: f32, power: f32, bass: f32) -> vec3<f32> {
+fn volumetric_fog(ro: vec3<f32>, rd: vec3<f32>, max_t: f32, power: f32, bass: f32, beat: f32) -> vec3<f32> {
     var fog = vec3<f32>(0.0);
     let steps = 16;
     let step_size = min(max_t, 3.0) / f32(steps);
@@ -232,10 +232,9 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     for (var i = 0; i < MAX_STEPS; i++) {
         let p = cam_pos + rd * t;
-        let mb = mandelbulb(p, power);
-        let inflate = mb.z * bass * 0.01;
-        let d = abs(mb.x - inflate);
-        trap_val = mb.y;
+        let result = scene(p, power, bass, beat);
+        let d = abs(result.x);
+        trap_val = result.y;
 
         min_dist = min(min_dist, d);
 
@@ -253,7 +252,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     if hit {
         let p = cam_pos + rd * t;
-        let n = get_normal(p, power, bass);
+        let n = get_normal(p, power, bass, beat);
 
         // Interior lighting
         let light1 = cam_pos + vec3<f32>(0.1, 0.15, 0.05);
@@ -297,7 +296,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     }
 
     // Volumetric fog
-    let vol = volumetric_fog(cam_pos, rd, t, power, bass);
+    let vol = volumetric_fog(cam_pos, rd, t, power, bass, beat);
     color += vol * 0.6;
 
     // Particles

@@ -1,5 +1,5 @@
-// mandelbulb_dive.wgsl - Spiral zoom into the Mandelbulb surface
-// Camera spirals inward centered on origin, spatial inflate/deflate
+// mandelbulb_dive.wgsl - Drifting orbit around Mandelbulb, always centered
+// Camera drifts smoothly around the fractal, always looking at origin
 // Colors configurable via ~/.config/vibe/colors.toml
 
 const PI: f32 = 3.14159265359;
@@ -30,22 +30,24 @@ fn rotZ(p: vec3<f32>, a: f32) -> vec3<f32> {
     return vec3<f32>(p.x * c - p.y * s, p.x * s + p.y * c, p.z);
 }
 
-// Smooth spatial inflation field based on world-space position.
+// ---- Spatial inflation field ----
+// Beat traverses the 4th dimension — inflate regions shift with BPM.
 // Returns [0, 1]: regions that inflate with bass.
 
-fn spatial_inflate(world_pos: vec3<f32>) -> f32 {
-    let field = sin(world_pos.x * 3.0)
-              * cos(world_pos.y * 3.5)
-              * sin(world_pos.z * 2.8)
-              + 0.5 * sin(world_pos.x * 5.0 + world_pos.z * 4.0)
-              * cos(world_pos.y * 4.5);
+fn spatial_inflate(world_pos: vec3<f32>, beat: f32) -> f32 {
+    let w = beat * 0.15;
+    let field = sin(world_pos.x * 3.0 + w)
+              * cos(world_pos.y * 3.5 - w * 0.7)
+              * sin(world_pos.z * 2.8 + w * 1.2)
+              + 0.5 * sin(world_pos.x * 5.0 + world_pos.z * 4.0 + w * 0.5)
+              * cos(world_pos.y * 4.5 - w * 0.9);
     return clamp(field * 0.7 + 0.3, 0.0, 1.0);
 }
 
 // ---- Mandelbulb SDF ----
-// Returns vec3(distance, orbit_trap, inflate_direction)
+// Returns vec2(distance, orbit_trap)
 
-fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
+fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
     var z = pos;
     var dr: f32 = 1.0;
     var r: f32 = 0.0;
@@ -75,38 +77,37 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
     }
 
     let dist = 0.5 * log(r) * r / dr;
-    let inflate_dir = spatial_inflate(pos);
-    return vec3<f32>(dist, trap, inflate_dir);
+    return vec2<f32>(dist, trap);
 }
 
 // ---- Scene with spatial inflation ----
 
-fn scene(p: vec3<f32>, power: f32, bass: f32) -> vec2<f32> {
+fn scene(p: vec3<f32>, power: f32, bass: f32, beat: f32) -> vec2<f32> {
     let mb = mandelbulb(p, power);
-    let inflate = mb.z * bass * 0.01;
+    let inflate = spatial_inflate(p, beat) * bass * 0.01;
     return vec2<f32>(mb.x - inflate, mb.y);
 }
 
 // ---- Normal ----
 
-fn get_normal(p: vec3<f32>, power: f32, bass: f32) -> vec3<f32> {
+fn get_normal(p: vec3<f32>, power: f32, bass: f32, beat: f32) -> vec3<f32> {
     let e = vec2<f32>(0.0003, 0.0);
-    let d = scene(p, power, bass).x;
+    let d = scene(p, power, bass, beat).x;
     return normalize(vec3<f32>(
-        scene(p + e.xyy, power, bass).x - d,
-        scene(p + e.yxy, power, bass).x - d,
-        scene(p + e.yyx, power, bass).x - d
+        scene(p + e.xyy, power, bass, beat).x - d,
+        scene(p + e.yxy, power, bass, beat).x - d,
+        scene(p + e.yyx, power, bass, beat).x - d
     ));
 }
 
 // ---- AO ----
 
-fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32, bass: f32) -> f32 {
+fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32, bass: f32, beat: f32) -> f32 {
     var occ: f32 = 0.0;
     var scale: f32 = 1.0;
     for (var i = 1; i <= 5; i++) {
         let h = 0.005 + 0.03 * f32(i);
-        let d = scene(p + n * h, power, bass).x;
+        let d = scene(p + n * h, power, bass, beat).x;
         occ += (h - d) * scale;
         scale *= 0.7;
     }
@@ -139,22 +140,20 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let bpm = max(iBPM, 60.0);
     let beat = iTime * bpm / 60.0;
 
-    // Spiral zoom centered on origin
-    let zoom_cycle = 64.0;
-    let beat_in_cycle = beat % zoom_cycle;
-    let zoom_progress = beat_in_cycle / zoom_cycle;
+    // Camera drifts around the bulb, always looking at origin
+    // Multiple incommensurate sinusoids for Lissajous-like drift
+    let cam_dist = 2.5 + sin(beat * PI / 48.0) * 0.4;
 
-    let dist_far = 3.0;
-    let dist_near = 1.25;
-    let cam_dist = dist_far * pow(dist_near / dist_far, zoom_progress);
-
-    let spiral_angle = beat * TAU / zoom_cycle;
-    let cam_elev = 0.25 + sin(beat * PI / 32.0) * 0.2;
+    let azimuth = beat * TAU / 80.0
+                + sin(beat * PI / 24.0) * 0.3
+                + sin(beat * PI / 37.0) * 0.15;
+    let elevation = sin(beat * PI / 32.0) * 0.35
+                  + sin(beat * PI / 19.0) * 0.15;
 
     let cam_pos = vec3<f32>(
-        cos(spiral_angle) * cos(cam_elev) * cam_dist,
-        sin(cam_elev) * cam_dist,
-        sin(spiral_angle) * cos(cam_elev) * cam_dist
+        cos(azimuth) * cos(elevation) * cam_dist,
+        sin(elevation) * cam_dist,
+        sin(azimuth) * cos(elevation) * cam_dist
     );
 
     // Always look at origin
@@ -164,7 +163,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     var right = normalize(cross(fwd, world_up));
     let up = cross(right, fwd);
 
-    let roll = beat * PI / 128.0;
+    let roll = sin(beat * PI / 64.0) * 0.08;
     let rd_base = normalize(fwd * 2.0 + right * uv.x + up * uv.y);
     let rd = rotZ(rd_base, roll);
 
@@ -177,7 +176,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     for (var i = 0; i < MAX_STEPS; i++) {
         let p = cam_pos + rd * t;
-        let result = scene(p, power, bass);
+        let result = scene(p, power, bass, beat);
         let d = result.x;
         trap_val = result.y;
 
@@ -197,7 +196,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     if hit {
         let p = cam_pos + rd * t;
-        let n = get_normal(p, power, bass);
+        let n = get_normal(p, power, bass, beat);
 
         let light_dir = normalize(cam_pos + vec3<f32>(0.5, 0.8, 0.0) - p);
         let diff = max(dot(n, light_dir), 0.0);
@@ -210,13 +209,11 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
         let fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
 
-        let ao = ambient_occlusion(p, n, power, bass);
+        let ao = ambient_occlusion(p, n, power, bass, beat);
 
         let trap_t = smoothstep(0.0, 1.2, trap_val);
-        let depth_color_shift = fract(zoom_progress * 3.0);
         var surface_col = mix(col_deep * 1.3, col_surface, trap_t);
-        surface_col = mix(surface_col, col_accent, depth_color_shift * 0.2 + mid * 0.15);
-        surface_col = mix(surface_col, col_deep * 1.5, zoom_progress * 0.2);
+        surface_col = mix(surface_col, col_accent, mid * 0.2);
 
         color = surface_col * (0.06 + diff * 0.7 + fill) * ao;
         color += col_accent * spec * (0.5 + treble * 0.8);

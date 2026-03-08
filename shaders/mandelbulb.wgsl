@@ -30,14 +30,14 @@ fn rotX(p: vec3<f32>, a: f32) -> vec3<f32> {
 // Using world pos instead of z_final avoids grain (z_final is chaotic).
 // Returns [0, 1]: regions that inflate with bass.
 
-fn spatial_inflate(world_pos: vec3<f32>) -> f32 {
-    let field = sin(world_pos.x * 3.0)
-              * cos(world_pos.y * 3.5)
-              * sin(world_pos.z * 2.8)
-              + 0.5 * sin(world_pos.x * 5.0 + world_pos.z * 4.0)
-              * cos(world_pos.y * 4.5);
-
-    // Normalize to [-1, 1] with smooth clamping
+fn spatial_inflate(world_pos: vec3<f32>, beat: f32) -> f32 {
+    // Beat traverses the 4th dimension — inflate regions shift with BPM
+    let w = beat * 0.15;
+    let field = sin(world_pos.x * 3.0 + w)
+              * cos(world_pos.y * 3.5 - w * 0.7)
+              * sin(world_pos.z * 2.8 + w * 1.2)
+              + 0.5 * sin(world_pos.x * 5.0 + world_pos.z * 4.0 + w * 0.5)
+              * cos(world_pos.y * 4.5 - w * 0.9);
     return clamp(field * 0.7 + 0.3, 0.0, 1.0);
 }
 
@@ -45,7 +45,7 @@ fn spatial_inflate(world_pos: vec3<f32>) -> f32 {
 // Returns vec3(distance, orbit_trap, inflate_direction)
 // inflate_direction: [-1, 1] spatial field for inflate/deflate
 
-fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
+fn mandelbulb(pos: vec3<f32>, power: f32) -> vec2<f32> {
     var z = pos;
     var dr: f32 = 1.0;
     var r: f32 = 0.0;
@@ -74,39 +74,37 @@ fn mandelbulb(pos: vec3<f32>, power: f32) -> vec3<f32> {
     }
 
     let dist = 0.5 * log(r) * r / dr;
-    let inflate_dir = spatial_inflate(pos);
-    return vec3<f32>(dist, trap, inflate_dir);
+    return vec2<f32>(dist, trap);
 }
 
 // ---- Scene with spatial inflation ----
 
-fn scene(p: vec3<f32>, power: f32, bass: f32) -> vec2<f32> {
+fn scene(p: vec3<f32>, power: f32, bass: f32, beat: f32) -> vec2<f32> {
     let mb = mandelbulb(p, power);
-    // Max inflation = 0.01 (half of previous 0.02), spatially modulated
-    let inflate = mb.z * bass * 0.01;
+    let inflate = spatial_inflate(p, beat) * bass * 0.01;
     return vec2<f32>(mb.x - inflate, mb.y);
 }
 
 // ---- Normal estimation ----
 
-fn get_normal(p: vec3<f32>, power: f32, bass: f32) -> vec3<f32> {
+fn get_normal(p: vec3<f32>, power: f32, bass: f32, beat: f32) -> vec3<f32> {
     let e = vec2<f32>(0.0005, 0.0);
-    let d = scene(p, power, bass).x;
+    let d = scene(p, power, bass, beat).x;
     return normalize(vec3<f32>(
-        scene(p + e.xyy, power, bass).x - d,
-        scene(p + e.yxy, power, bass).x - d,
-        scene(p + e.yyx, power, bass).x - d
+        scene(p + e.xyy, power, bass, beat).x - d,
+        scene(p + e.yxy, power, bass, beat).x - d,
+        scene(p + e.yyx, power, bass, beat).x - d
     ));
 }
 
 // ---- AO ----
 
-fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32, bass: f32) -> f32 {
+fn ambient_occlusion(p: vec3<f32>, n: vec3<f32>, power: f32, bass: f32, beat: f32) -> f32 {
     var occ: f32 = 0.0;
     var scale: f32 = 1.0;
     for (var i = 1; i <= 5; i++) {
         let h = 0.01 + 0.06 * f32(i);
-        let d = scene(p + n * h, power, bass).x;
+        let d = scene(p + n * h, power, bass, beat).x;
         occ += (h - d) * scale;
         scale *= 0.7;
     }
@@ -192,7 +190,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     for (var i = 0; i < MAX_STEPS; i++) {
         let p = cam_pos + rd * t;
-        let result = scene(p, power, bass);
+        let result = scene(p, power, bass, beat);
         let d = result.x;
         trap_val = result.y;
 
@@ -210,7 +208,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
     if hit {
         let p = cam_pos + rd * t;
-        let n = get_normal(p, power, bass);
+        let n = get_normal(p, power, bass, beat);
 
         // Lighting
         let light_angle = beat * TAU / 48.0;
@@ -227,7 +225,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
         let fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
 
-        let ao = ambient_occlusion(p, n, power, bass);
+        let ao = ambient_occlusion(p, n, power, bass, beat);
 
         let trap_t = smoothstep(0.0, 1.2, trap_val);
         var surface_col = mix(col_deep * 1.2, col_base, trap_t);
