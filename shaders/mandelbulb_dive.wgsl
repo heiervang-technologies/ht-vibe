@@ -163,9 +163,13 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     var right = normalize(cross(fwd, world_up));
     let up = cross(right, fwd);
 
+    // Apply roll to the camera basis vectors, not the ray direction
     let roll = sin(beat * PI / 64.0) * 0.08;
-    let rd_base = normalize(fwd * 2.0 + right * uv.x + up * uv.y);
-    let rd = rotZ(rd_base, roll);
+    let cr = cos(roll);
+    let sr = sin(roll);
+    let right_rolled = right * cr + up * sr;
+    let up_rolled = -right * sr + up * cr;
+    let rd = normalize(fwd * 2.0 + right_rolled * uv.x + up_rolled * uv.y);
 
     // ---- Raymarch ----
     var t: f32 = 0.0;
