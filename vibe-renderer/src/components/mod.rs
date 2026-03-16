@@ -21,6 +21,7 @@ pub use radial::{Radial, RadialDescriptor, RadialFormat, RadialVariant};
 use crate::{Renderable, Renderer};
 use serde::{Deserialize, Serialize};
 use std::{num::NonZero, path::PathBuf};
+use tracing::debug;
 use utils::wgsl_types::*;
 use vibe_audio::{fetcher::Fetcher, SampleProcessor};
 
@@ -111,11 +112,65 @@ pub struct ShaderCode {
     pub source: ShaderSource,
 }
 
+/// Search directories for resolving non-absolute shader paths.
+///
+/// Checks (in order):
+/// 1. `~/.config/vibe/shaders/` — user overrides
+/// 2. `~/.local/share/vibe/shaders/` — XDG data home
+/// 3. Each dir in `$XDG_DATA_DIRS` + `/vibe/shaders/` — system-installed (e.g. Nix store)
+fn resolve_shader_path(relative: &std::path::Path) -> Option<PathBuf> {
+    let xdg = xdg::BaseDirectories::with_prefix("vibe");
+    let shader_subpath = PathBuf::from("shaders").join(relative);
+
+    // 1. Config dir (user overrides: ~/.config/vibe/shaders/)
+    if let Some(found) = xdg.find_config_file(&shader_subpath) {
+        debug!("Resolved shader from config: {}", found.display());
+        return Some(found);
+    }
+
+    // 2. XDG data dirs (data home + system data dirs, e.g. Nix store)
+    if let Some(found) = xdg.find_data_file(&shader_subpath) {
+        debug!("Resolved shader from data dir: {}", found.display());
+        return Some(found);
+    }
+
+    None
+}
+
 impl ShaderCode {
     pub fn source(&self) -> std::io::Result<String> {
         match self.source.clone() {
             ShaderSource::Code(code) => Ok(code),
-            ShaderSource::Path(path) => std::fs::read_to_string(path),
+            ShaderSource::Path(path) => {
+                // Absolute paths are used as-is (backwards compatible)
+                if path.is_absolute() {
+                    return std::fs::read_to_string(&path);
+                }
+
+                // Relative/bare names: search standard directories
+                if let Some(resolved) = resolve_shader_path(&path) {
+                    return std::fs::read_to_string(&resolved);
+                }
+
+                // Fall through to original error for unresolved paths
+                std::fs::read_to_string(&path)
+            }
+        }
+    }
+
+    /// Returns the resolved absolute path for this shader, if it uses a path source.
+    ///
+    /// Used by the file watcher to know which file to monitor for hot-reloading.
+    pub fn resolved_path(&self) -> Option<PathBuf> {
+        match &self.source {
+            ShaderSource::Code(_) => None,
+            ShaderSource::Path(path) => {
+                if path.is_absolute() {
+                    Some(path.clone())
+                } else {
+                    resolve_shader_path(path)
+                }
+            }
         }
     }
 }

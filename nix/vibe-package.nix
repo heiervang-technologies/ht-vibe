@@ -60,6 +60,10 @@ rustPlatform.buildRustPackage rec {
       vulkan-loader
       libgbm
     ])}
+
+    # Install bundled shaders to XDG data dir
+    mkdir -p $out/share/vibe/shaders
+    cp ${../shaders}/*.wgsl $out/share/vibe/shaders/
   '';
 
   LD_LIBRARY_PATH = "$LD_LIBRARY_PATH:${lib.makeLibraryPath buildInputs}";
