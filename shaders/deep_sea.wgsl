@@ -1,5 +1,5 @@
-// deep_sea.wgsl - Bioluminescent ocean with jellyfish and plankton
-// Raymarched jellyfish with volumetric glow, trailing tentacles, and particle plankton
+// deep_sea_interactive.wgsl - Bioluminescent jellyfish that bounce when clicked
+// Click on or near a jellyfish to make it bounce away from the click point
 // Audio-reactive: bass drives jellyfish pulse, mid controls drift, treble sparks plankton
 // Colors: color1=abyss, color2=jellyfish bell, color3=glow core, color4=caustics
 
@@ -9,6 +9,9 @@ const BRIGHTNESS: f32 = 1.3;
 const MAX_STEPS: i32 = 48;
 const MAX_DIST: f32 = 20.0;
 const SURF_DIST: f32 = 0.01;
+const NUM_JELLIES: i32 = 5;
+const BOUNCE_DURATION: f32 = 4.0;
+const BOUNCE_SCALE: f32 = 0.6;
 
 // ──── Hash functions ────
 
@@ -28,7 +31,7 @@ fn hash33(p: vec3<f32>) -> vec3<f32> {
     );
 }
 
-// ──── Cheap wobble (replaces full matrix rotation) ────
+// ──── Cheap wobble ────
 
 fn wobble_pos(p: vec3<f32>, t: f32, seed: f32, seed2: f32) -> vec3<f32> {
     let ax = sin(t * 0.3 + seed * 5.0) * 0.2;
@@ -40,7 +43,7 @@ fn wobble_pos(p: vec3<f32>, t: f32, seed: f32, seed2: f32) -> vec3<f32> {
     );
 }
 
-// ──── Smooth min for organic blending ────
+// ──── Smooth min ────
 
 fn smin(a: f32, b: f32, k: f32) -> f32 {
     let h = max(k - abs(a - b), 0.0) / k;
@@ -53,7 +56,7 @@ fn noise3(p: vec3<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
     let u = f * f * (3.0 - 2.0 * f);
-    
+
     return mix(
         mix(mix(hash31(i), hash31(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
             mix(hash31(i + vec3<f32>(0.0, 1.0, 0.0)), hash31(i + vec3<f32>(1.0, 1.0, 0.0)), u.x), u.y),
@@ -61,19 +64,6 @@ fn noise3(p: vec3<f32>) -> f32 {
             mix(hash31(i + vec3<f32>(0.0, 1.0, 1.0)), hash31(i + vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y),
         u.z
     );
-}
-
-fn fbm(p: vec3<f32>, octaves: i32) -> f32 {
-    var value = 0.0;
-    var amplitude = 0.5;
-    var pp = p;
-    
-    for (var i = 0; i < octaves; i++) {
-        value += amplitude * noise3(pp);
-        pp *= 2.0;
-        amplitude *= 0.5;
-    }
-    return value;
 }
 
 // ──── Jellyfish SDF ────
@@ -84,11 +74,11 @@ fn sdEllipsoid(p: vec3<f32>, r: vec3<f32>) -> f32 {
     return k0 * (k0 - 1.0) / k1;
 }
 
-fn jellyfish(p: vec3<f32>, t: f32, pulse: f32) -> f32 {
-    let bell_height = 0.4 + pulse * 0.1;
-    let bell_width = 0.5 + pulse * 0.08;
+fn jellyfish(p: vec3<f32>, t: f32, pulse: f32, bounce: f32) -> f32 {
+    // bounce [0,1+] inflates the bell and tentacles
+    let bell_height = (0.4 + pulse * 0.1) * (1.0 + bounce * 0.8);
+    let bell_width = (0.5 + pulse * 0.08) * (1.0 + bounce * 0.5);
 
-    // Simplified wobble (one sin instead of atan2)
     let wobble = sin(p.x * 4.0 + p.z * 3.0 + t * 2.0) * 0.04;
 
     let bell = sdEllipsoid(p + vec3<f32>(wobble, 0.0, 0.0),
@@ -98,7 +88,6 @@ fn jellyfish(p: vec3<f32>, t: f32, pulse: f32) -> f32 {
                              vec3<f32>(bell_width * 0.7, bell_height * 0.6, bell_width * 0.7));
     let hollow = max(bell, -cavity);
 
-    // Tentacles — only evaluate below the bell
     if (p.y >= 0.0) { return hollow; }
     if (p.y < -1.5) { return hollow; }
 
@@ -121,6 +110,52 @@ fn jellyfish(p: vec3<f32>, t: f32, pulse: f32) -> f32 {
     return smin(hollow, tentacles, 0.08);
 }
 
+// ──── Jellyfish base position (without bounce) ────
+
+fn jelly_base_pos(j: i32, t: f32) -> vec3<f32> {
+    let seed = hash31(vec3<f32>(f32(j) * 7.3, 13.7, 29.1));
+    let seed2 = hash31(vec3<f32>(f32(j) * 3.1, 17.9, 41.3));
+
+    let drift_speed = 0.1 + seed * 0.1;
+    let jy = -0.5 + seed * 1.5 + sin(t * drift_speed + seed * TAU) * 0.8;
+    let jx = (seed2 - 0.5) * 5.0 + sin(t * 0.08 + seed * 3.0) * 0.5;
+    let jz = (seed - 0.5) * 5.0 + cos(t * 0.06 + seed2 * 2.0) * 0.5;
+    return vec3<f32>(jx, jy, jz);
+}
+
+// ──── Bounce inflate from click ────
+// Returns a [0,1] inflate factor: jellyfish puffs up then oscillates back to normal.
+
+fn bounce_inflate(jelly_pos: vec3<f32>, cam_pos: vec3<f32>,
+                  click_rd: vec3<f32>, click_age: f32) -> f32 {
+    if (click_age < 0.0 || click_age > BOUNCE_DURATION) {
+        return 0.0;
+    }
+
+    // Find closest approach of click ray to this jellyfish center
+    let co = jelly_pos - cam_pos;
+    let proj = dot(co, click_rd);
+    let closest_on_ray = cam_pos + click_rd * max(proj, 0.0);
+    let dist_to_ray = length(jelly_pos - closest_on_ray);
+
+    // Only bounce if click ray passes within ~1.5 units of the jellyfish
+    let influence = smoothstep(1.5, 0.0, dist_to_ray);
+    if (influence < 0.01) {
+        return 0.0;
+    }
+
+    // Quick but visible inflate (~0.15s), then springy decay
+    let inflate_rise = smoothstep(0.0, 0.15, click_age);
+    let spring_freq = 6.0;
+    let damping = 3.0;
+    let envelope = exp(-max(click_age - 0.15, 0.0) * damping);
+    let oscillation = cos(max(click_age - 0.15, 0.0) * spring_freq);
+    let magnitude = mix(inflate_rise, oscillation * envelope, smoothstep(0.1, 0.2, click_age))
+                  * BOUNCE_SCALE * influence;
+
+    return magnitude;
+}
+
 // ──── Scene SDF ────
 
 struct SceneResult {
@@ -129,46 +164,41 @@ struct SceneResult {
     glow: f32,
 };
 
-fn scene(p: vec3<f32>, t: f32, bass: f32, mid: f32) -> SceneResult {
+fn scene(p: vec3<f32>, t: f32, bass: f32, mid: f32,
+         cam_pos: vec3<f32>, click_rd: vec3<f32>, click_age: f32) -> SceneResult {
     var result = SceneResult(MAX_DIST, 0.0, 0.0);
 
-    // Multiple jellyfish scattered around origin
-    for (var j = 0; j < 5; j++) {
+    for (var j = 0; j < NUM_JELLIES; j++) {
         let seed = hash31(vec3<f32>(f32(j) * 7.3, 13.7, 29.1));
         let seed2 = hash31(vec3<f32>(f32(j) * 3.1, 17.9, 41.3));
 
-        let drift_speed = 0.1 + seed * 0.1;
-        let jy = -0.5 + seed * 1.5 + sin(t * drift_speed + seed * TAU) * 0.8;
-        let jx = (seed2 - 0.5) * 5.0 + sin(t * 0.08 + seed * 3.0) * 0.5;
-        let jz = (seed - 0.5) * 5.0 + cos(t * 0.06 + seed2 * 2.0) * 0.5;
-        let jcenter = vec3<f32>(jx, jy, jz);
-        let jp = p - jcenter;
+        let jcenter = jelly_base_pos(j, t);
+        let bounce = bounce_inflate(jcenter, cam_pos, click_rd, click_age);
 
-        // Bounding sphere — skip detailed SDF if far away
+        let jp = p - jcenter;
         let bound_r = length(jp);
-        if (bound_r > 2.5) {
-            // Cheap sphere distance for the raymarcher + glow
+
+        // Expand bounding sphere when inflated
+        if (bound_r > 2.5 + bounce * 2.0) {
             let pulse = bass * 0.25;
-            result.d = min(result.d, bound_r - 0.6);
+            result.d = min(result.d, bound_r - 0.6 - bounce);
             result.glow += exp(-bound_r * bound_r * 0.5) * (0.3 + pulse);
             continue;
         }
 
-        // Cheap wobble instead of full matrix rotation
         let jp_rot = wobble_pos(jp, t, seed, seed2);
-
         let pulse = bass * 0.5 * (0.5 + 0.5 * sin(t * 2.0 + seed * TAU));
-        let jd = jellyfish(jp_rot, t, pulse);
+        let jd = jellyfish(jp_rot, t, pulse, bounce);
 
         if (jd < result.d) {
             result.d = jd;
             result.mat_id = 1.0 + f32(j) * 0.1;
         }
 
-        result.glow += exp(-bound_r * bound_r * 0.5) * (0.3 + pulse);
+        result.glow += exp(-bound_r * bound_r * 0.5) * (0.3 + pulse + bounce * 0.5);
     }
 
-    // Seabed — single noise sample instead of two
+    // Seabed
     let sand_y = -2.5 + noise3(p * 0.8 + vec3<f32>(0.0, 0.0, t * 0.02)) * 0.5;
     let floor_d = p.y - sand_y;
     if (floor_d < result.d) {
@@ -184,7 +214,7 @@ fn scene(p: vec3<f32>, t: f32, bass: f32, mid: f32) -> SceneResult {
 fn caustics(uv: vec2<f32>, t: f32) -> f32 {
     var scale = 3.0;
     var c = 0.0;
-    
+
     for (var i = 0; i < 3; i++) {
         let fi = f32(i);
         let p = uv * scale * (1.0 + fi * 0.5);
@@ -193,7 +223,7 @@ fn caustics(uv: vec2<f32>, t: f32) -> f32 {
              sin(p.y + sin(p.x * 1.3 + offset.y) * 0.5);
         scale *= 1.8;
     }
-    
+
     return c * 0.15 + 0.5;
 }
 
@@ -201,18 +231,18 @@ fn caustics(uv: vec2<f32>, t: f32) -> f32 {
 
 fn plankton(rd: vec3<f32>, t: f32, treble: f32) -> f32 {
     var glow = 0.0;
-    
+
     let layers = 4;
     for (var l = 0; l < layers; l++) {
         let fl = f32(l);
         let depth = 1.0 + fl * 2.0;
         let p = rd * depth;
-        
+
         let cell = floor(p * 5.0);
         let cell_frac = fract(p * 5.0) - 0.5;
-        
+
         let h = hash31(cell + fl * 17.0);
-        
+
         if (h > 0.92) {
             let offset = hash33(cell) - 0.5;
             let d = length(cell_frac - offset * 0.3);
@@ -221,7 +251,7 @@ fn plankton(rd: vec3<f32>, t: f32, treble: f32) -> f32 {
             glow += brightness * twinkle * (0.2 + treble * 0.8) * (1.0 - fl * 0.2);
         }
     }
-    
+
     return glow;
 }
 
@@ -230,23 +260,22 @@ fn plankton(rd: vec3<f32>, t: f32, treble: f32) -> f32 {
 @fragment
 fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let uv = (pos.xy - iResolution.xy * 0.5) / min(iResolution.x, iResolution.y);
-    let uv_full = pos.xy / iResolution.xy;
-    
+
     // Audio
     let n_freqs = arrayLength(&freqs);
     let bass = (freqs[0] + freqs[1] + freqs[2] + freqs[3]) / 4.0;
     let mid_idx = n_freqs / 2u;
     let mid = (freqs[mid_idx] + freqs[min(mid_idx + 1u, n_freqs - 1u)]) / 2.0;
     let treble = (freqs[n_freqs - 2u] + freqs[n_freqs - 1u]) / 2.0;
-    
+
     let t = iTime;
-    
+
     // Palette
     let c_abyss = iColors.color1.xyz;
     let c_bell = iColors.color2.xyz;
     let c_glow = iColors.color3.xyz;
     let c_caustic = iColors.color4.xyz;
-    
+
     // Camera - slow drift
     let cam_dist = 4.0;
     let cam_angle = t * 0.05 + sin(t * 0.02) * 0.3;
@@ -256,46 +285,54 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         cam_height,
         cos(cam_angle) * cam_dist
     );
-    
+
     let forward = normalize(-cam_pos);
     let right = normalize(cross(vec3<f32>(0.0, 1.0, 0.0), forward));
     let up = cross(forward, right);
-    
+
     let rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
-    
+
+    // Click handling — compute click ray direction
+    // iMouseClick.xy = normalized click pos (0-1), z = click time
+    let click_uv = (iMouseClick.xy * iResolution.xy - iResolution.xy * 0.5)
+                 / min(iResolution.x, iResolution.y);
+    let click_rd = normalize(click_uv.x * right + click_uv.y * up + 1.5 * forward);
+    let click_age = t - iMouseClick.z;
+    // If click position is negative (cleared), no bounce
+    let has_click = select(0.0, 1.0, iMouseClick.x >= 0.0 && iMouseClick.y >= 0.0);
+    let effective_click_age = select(-1.0, click_age, has_click > 0.5);
+
     // Raymarching
     var p = cam_pos;
     var t_ray = 0.0;
     var hit = SceneResult(MAX_DIST, 0.0, 0.0);
-    
     var accum_glow = 0.0;
-    
+
     for (var i = 0; i < MAX_STEPS; i++) {
         p = cam_pos + rd * t_ray;
-        hit = scene(p, t, bass, mid);
-        
-        // Accumulate volumetric glow
+        hit = scene(p, t, bass, mid, cam_pos, click_rd, effective_click_age);
+
         accum_glow += hit.glow * 0.02;
-        
+
         if (hit.d < SURF_DIST || t_ray > MAX_DIST) {
             break;
         }
-        
+
         t_ray += max(hit.d * 0.85, 0.03);
     }
-    
+
     // Background - deep ocean gradient
     var color = mix(c_abyss, c_abyss * 1.5, 0.5 - rd.y * 0.3);
-    
-    // Caustics from surface light
+
+    // Caustics
     let caustic_uv = uv + rd.xz * 0.3;
     let caust = caustics(caustic_uv, t) * smoothstep(-0.3, 0.5, rd.y);
     color += c_caustic * caust * 0.15;
-    
-    // Plankton glow
+
+    // Plankton
     let plank = plankton(rd, t, treble);
     color += c_glow * plank * 0.5;
-    
+
     // Surface shading
     if (hit.d < SURF_DIST) {
         if (hit.mat_id >= 1.0 && hit.mat_id < 2.0) {
@@ -305,38 +342,55 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             let rim_glow = pow(rim, 3.0) * c_glow;
             let internal = c_glow * (0.2 + bass * 0.5);
             color = mix(surface, rim_glow * 2.0 + internal, rim);
+
+            // Flash on recent bounce
+            if (effective_click_age >= 0.0 && effective_click_age < 0.5) {
+                let flash = exp(-effective_click_age * 8.0) * 0.4;
+                color += c_glow * flash;
+            }
         } else {
-            // Seabed — sandy textured floor (single noise, no fbm)
+            // Seabed
             let sand_noise = noise3(p * 3.0);
             let sand_base = c_abyss * 1.8 + vec3<f32>(0.08, 0.06, 0.03);
             let floor_caust = caustics(p.xz * 0.5, t) * 0.4;
             let light_from_above = smoothstep(-3.0, -1.5, p.y);
             color = sand_base * (0.4 + sand_noise * 0.5)
                   + c_caustic * floor_caust * light_from_above * 0.3;
-            // Bioluminescent specks
             let speck = hash31(floor(p * 8.0));
             if (speck > 0.97) {
                 color += c_glow * 0.3 * (0.5 + 0.5 * sin(t * 2.0 + speck * 50.0));
             }
         }
 
-        // Depth fog on surfaces
         let hit_fog = 1.0 - exp(-t_ray * t_ray * 0.015);
         color = mix(color, c_abyss * 0.05, hit_fog);
     }
 
-    // Add accumulated volumetric glow
+    // Volumetric glow
     color += c_glow * accum_glow * 2.0;
+
+    // Click ripple effect — expanding ring from click point
+    if (effective_click_age >= 0.0 && effective_click_age < 2.0) {
+        let click_screen = iMouseClick.xy * 2.0 - 1.0;
+        let aspect = iResolution.x / iResolution.y;
+        let click_centered = vec2<f32>((click_screen.x) * aspect, click_screen.y);
+        let frag_centered = vec2<f32>(uv.x * aspect, uv.y);
+        let dist_to_click = length(frag_centered - click_centered);
+        let ripple_radius = effective_click_age * 0.8;
+        let ripple = exp(-pow(dist_to_click - ripple_radius, 2.0) * 40.0)
+                   * exp(-effective_click_age * 3.0) * 0.15;
+        color += c_glow * ripple;
+    }
 
     // Distance fog
     let fog = 1.0 - exp(-t_ray * t_ray * 0.012);
     color = mix(color, c_abyss * 0.05, fog);
-    
+
     // Vignette
     color *= 1.0 - dot(uv, uv) * 0.25;
-    
+
     // Tone mapping
     color = color / (color + vec3<f32>(1.0));
-    
+
     return vec4<f32>(color * BRIGHTNESS, 1.0);
 }
