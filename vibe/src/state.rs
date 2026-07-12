@@ -1,4 +1,5 @@
 use crate::{
+    colors::ColorManager,
     config::ConfigError,
     output::{
         config::{component::Config, OutputConfig},
@@ -54,6 +55,8 @@ pub struct State {
     pointer: Option<WlPointer>,
 
     outputs: HashMap<WlOutput, OutputCtx>,
+
+    color_manager: ColorManager,
 }
 
 impl State {
@@ -143,20 +146,27 @@ impl State {
             outputs: HashMap::new(),
 
             default_component: vibe_config.default_component.unwrap_or_default(),
+
+            color_manager: ColorManager::new(),
         })
     }
 
     pub fn render(&mut self, output_key: WlOutput, qh: &QueueHandle<Self>) {
+        // Check for color config changes (cheap mtime check)
+        self.color_manager.check_and_reload();
+
         let output = self.outputs.get_mut(&output_key).unwrap();
 
         // update the buffers for the next frame
         {
             let queue = self.renderer.queue();
             let curr_time = self.time.elapsed().as_secs_f32();
+            let colors = self.color_manager.colors();
 
             for component in output.components.iter_mut() {
                 component.update_audio(queue, &self.sample_processor);
                 component.update_time(queue, curr_time);
+                component.update_colors(queue, &colors);
             }
         }
 
@@ -168,6 +178,16 @@ impl State {
                         .create_view(&wgpu::TextureViewDescriptor::default()),
                     &output.components,
                 );
+
+                // GPU readback: let components read pixels from the rendered surface
+                for component in output.components.iter_mut() {
+                    component.post_render(
+                        self.renderer.device(),
+                        self.renderer.queue(),
+                        &surface_texture.texture,
+                    );
+                }
+
                 surface_texture.present();
                 output.request_redraw(qh);
             }
@@ -485,9 +505,26 @@ impl PointerHandler for State {
                 .values_mut()
                 .find(|output| &event.surface == output.layer_surface().wl_surface())
             {
-                if let PointerEventKind::Motion { .. } = event.kind {
-                    let queue = self.renderer.queue();
-                    output.update_mouse_position(queue, event.position);
+                let queue = self.renderer.queue();
+                match event.kind {
+                    PointerEventKind::Motion { .. } => {
+                        output.update_mouse_position(queue, event.position);
+                    }
+                    PointerEventKind::Press { button, .. } => {
+                        let current_time = self.time.elapsed().as_secs_f32();
+                        match button {
+                            0x110 => {
+                                // BTN_LEFT: focus on click position
+                                output.update_mouse_click(queue, event.position, current_time);
+                            }
+                            0x111 => {
+                                // BTN_RIGHT: clear focus
+                                output.update_mouse_click(queue, (-1.0, -1.0), current_time);
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
