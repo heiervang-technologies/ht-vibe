@@ -6,7 +6,8 @@ Helper scripts for keybindings, ambient effects, and live data feeds for [vibe](
 
 | Script | Description | Compositor Required |
 |--------|-------------|:---:|
-| `cycle-shader.sh` | Cycle through shaders for a given output config | No |
+| `cycle-shader.sh` | Cycle through discovered shaders for a given output config | No |
+| `vibe-web-window.sh` | Launch a dedicated browser app-window for a web shader | No |
 | `vibe-key-cycle.sh` | Keybinding: cycle shader on focused vibe window | Yes |
 | `randomize-colors.sh` | Randomize the 4-color palette | Optional |
 | `pokemon-click-cry.py` | Play Pokemon cry on shader click | No |
@@ -49,6 +50,8 @@ bindsym $mod+Shift+c      exec /path/to/utils/randomize-colors.sh
 
 ## Shader Cycling
 
+`cycle-shader.sh` discovers shaders from `$VIBE_CONFIG_DIR/shaders/*.wgsl` at runtime. Add or remove a WGSL file there and the `list`, `next`, `prev`, and by-name commands pick it up automatically.
+
 ```bash
 # Cycle next/prev for a specific output
 utils/cycle-shader.sh window-1 next
@@ -60,6 +63,18 @@ utils/cycle-shader.sh window-1 nebula
 # List available shaders
 utils/cycle-shader.sh window-1 list
 ```
+
+## Web Shader Window
+
+```bash
+# Open a random discovered web shader in an app-mode browser window
+utils/vibe-web-window.sh
+
+# Open a specific web shader
+utils/vibe-web-window.sh osint_hud
+```
+
+The web launcher discovers shaders from `vibe-web/www/shaders` and expects a local HTTP server at `$VIBE_WEB_URL` (default: `http://localhost:8766`). Chromium or Chrome is preferred because some browser wrappers disable GPU acceleration.
 
 ## Cluster Status Feeder
 
@@ -100,3 +115,6 @@ utils/cluster-status-feeder.sh 5 /path/to/cluster.wgsl
 | `VIBE_CRY_VOLUME` | `0.4` | Click-cry volume (0.0-1.0) |
 | `VIBE_CLUSTER_NODES` | `~/.config/vibe/cluster-nodes.toml` | Cluster node definitions |
 | `VIBE_COMPOSITOR` | *(auto-detect)* | Force compositor: `hyprland\|sway\|kde` |
+| `VIBE_WEB_URL` | `http://localhost:8766` | Web visualizer server URL |
+| `VIBE_WEB_SHADER_DIR` | `vibe-web/www/shaders` | Shader directory for `vibe-web-window.sh` |
+| `VIBE_WEB_BROWSER` | *(auto-detect)* | Browser executable for `vibe-web-window.sh` |

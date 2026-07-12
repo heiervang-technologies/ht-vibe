@@ -10,7 +10,10 @@ For upstream changes, see [vibe/CHANGELOG.md](./vibe/CHANGELOG.md).
 
 - **Portable utility scripts** — Shader cycling, color randomization, Pokemon cry daemons, and K8s cluster status feeder with multi-compositor support (Hyprland, Sway, KDE Plasma) via shared `utils/lib/compositor.sh` abstraction ([427477c](https://github.com/heiervang-technologies/ht-vibe/commit/427477c))
 - **18 custom WGSL shaders** — aurora, cluster, deep_sea, event_horizon, grass, liquid, mandelbrot_light, monolith, nebula, plasma, pokemon_grass, pokemon_grass_3d, singularity, solar_system, starfield, tesseract, vortex, waveform ([b497b80](https://github.com/heiervang-technologies/ht-vibe/commit/b497b80))
-- **Additional WGSL shaders** — cymatics (Chladni standing-wave drumhead), driving_arctic / driving_city / driving_game / driving_sunset (procedural racing biomes), evil_mandelbulb, neural_bloom, solar_system_vivid, stormveil
+- **Auto-discovered WGSL shader catalog** — Shader cycling now discovers `*.wgsl` from the configured shader directory instead of relying on a hardcoded list, so newly added shaders become available automatically.
+- **Additional WGSL shaders** — cymatics (Chladni standing-wave drumhead), driving_arctic / driving_city / driving_game / driving_sunset (procedural racing biomes), cathedral_of_noise, evil_mandelbulb, neural_bloom, osint_hud, solar_system_vivid, stormveil
+- **Slipstream Regatta shader** — `slipstream_regatta.wgsl`, a beat-synced hyperlane race that exercises every uniform: spectrum-sculpted tunnel walls, BPM-pulsed ring gates, WASD flight (W boost FOV kick, A/D banking), mouse steering, click shockwaves + missiles, `iTexture` greebled wall panels, `iLocalTime` day/night mood, and the full race loop (AI comets, projectile bolts, ice-lock slow effects, countdown/rank overlays with victory fireworks)
+- **Web visualizer preview** — `vibe-web/` provides a WebGPU browser preview with shader auto-discovery, fallback shader list, and a dedicated app-window launcher for selected or random shaders.
 - **Click-to-interact Pokemon shader** — `iMouseClick` (vec4f, binding 8) and `iLocalTime` (binding 9) uniforms with GPU pixel readback for species identification. Writes to `/tmp/vibe-click` and `/tmp/vibe-click-species` ([23ada09](https://github.com/heiervang-technologies/ht-vibe/commit/23ada09))
 - **Pokemon shiny system** — 1/128 spawn rate with canonical per-species recolor. HSV hue-shift in `shiny_recolor()` is gated by a per-species hue range (`shiny_hue_filter()`) so multi-color sprites only recolor their primary regions (e.g. Swellow blue→green keeps the red throat; Latias red→gold keeps the blue triangle; Latios blue→pink keeps the red triangle). Chroma mask suppresses recolor on near-black/near-white pixels.
 - **Shiny sparkle bursts** — Screen-space additive gold stars (`vec3(1.0, 0.90, 0.25)`) painted on top of each shiny in `mainImage`. Per-shiny independent timing: 2.0–4.5 s intervals between bursts, 0.30–0.45 s burst duration, 3 stars per burst placed on the sprite (x ±35 % of width, y 10–45 % down from head).
@@ -20,9 +23,11 @@ For upstream changes, see [vibe/CHANGELOG.md](./vibe/CHANGELOG.md).
 
 ### Fixes
 
+- **Race game playability** — The race was mathematically unwinnable (AI base speeds 1.18/1.28/1.40 vs player max boost 1.30) and clicking the window to gain keyboard focus skipped the countdown and started the race instantly. Now: intro is an ambient cruise until a click arms a full 3s countdown (clicks never skip it), AI speeds rebalanced to 0.96/1.06/1.18 vs player boost 1.35, missiles fly at 2.4 (was 1.6, barely faster than the lead AI), player fire cooldown 1.8s (was 2.5), slow-on-hit softened (0.55×/1.4s, was 0.45×/1.6s), AI fire interval relaxed to 5.5s, and timeout rank now compares raw progress for unfinished racers instead of silently favoring the player
 - **AMD GPU compatibility** — Prefer Bgra8Unorm/Rgba8Unorm surface format ([1afe7fc](https://github.com/heiervang-technologies/ht-vibe/commit/1afe7fc))
 - **Audio capture** — Use input device (monitor source) instead of output device ([1cbeb61](https://github.com/heiervang-technologies/ht-vibe/commit/1cbeb61))
 - **Shader load flash** — Start normalize_factor low to prevent blinding flash on load ([8cdc3df](https://github.com/heiervang-technologies/ht-vibe/commit/8cdc3df))
+- **Pokemon shader exposure** — Balanced the Pokemon shader post-processing with shadow lift, highlight rolloff, softer contrast, and gamma correction so the scene avoids crushed blacks and blown highlights.
 
 ### Documentation
 

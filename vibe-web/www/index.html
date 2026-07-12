@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vibe</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #eee; }
+        canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+
+        #controls {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            padding: 14px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            z-index: 100;
+            min-width: 240px;
+            max-width: 280px;
+        }
+        #controls h2 { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.55; margin-top: 4px; }
+        #controls h2:first-child { margin-top: 0; }
+        #controls label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; opacity: 0.75; }
+        #controls select, #controls input[type="range"], #controls input[type="file"], #controls audio {
+            font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid #444;
+            background: #181818; color: #eee; width: 100%;
+        }
+        #controls input[type="range"] { padding: 4px 0; }
+        #controls .row { display: flex; gap: 6px; align-items: center; }
+        #controls button {
+            font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #444;
+            background: #222; color: #eee; cursor: pointer; flex: 1;
+        }
+        #controls button:hover:not(:disabled) { background: #333; }
+        #controls button:disabled { opacity: 0.4; cursor: default; }
+        #controls .hint { opacity: 0.5; font-size: 11px; line-height: 1.4; }
+
+        #stats {
+            position: fixed; top: 16px; left: 16px; z-index: 100;
+            background: rgba(0,0,0,0.55); backdrop-filter: blur(12px);
+            padding: 10px 12px; border-radius: 8px;
+            font: 12px/1.4 ui-monospace, monospace;
+            min-width: 130px;
+        }
+        #stats .num { font-size: 18px; }
+        #stats .small { opacity: 0.55; font-size: 10px; }
+
+        audio { display: block; }
+        #audio-el { width: 100%; }
+
+        #no-webgpu {
+            display: none; position: fixed; inset: 0; background: #111; color: #ccc;
+            justify-content: center; align-items: center; text-align: center;
+            flex-direction: column; gap: 12px; padding: 24px; z-index: 1000;
+        }
+        #no-webgpu h1 { font-size: 22px; }
+        #no-webgpu code { background: #222; padding: 2px 6px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <canvas id="vibe-canvas"></canvas>
+
+    <div id="stats">
+        <div>BPM: <span class="num" id="bpm-num">--</span></div>
+        <div class="small" id="audio-source">no audio</div>
+    </div>
+
+    <div id="controls">
+        <h2>Shader</h2>
+        <label>
+            <select id="shader-picker"></select>
+        </label>
+
+        <h2>Audio source</h2>
+        <div class="row">
+            <button id="src-file-btn">Pick file</button>
+            <button id="src-mic-btn">Mic</button>
+        </div>
+        <div class="row">
+            <button id="src-tab-btn" title="Share a tab/screen with audio (Chrome/Edge only)">Share tab audio</button>
+        </div>
+        <input id="file-input" type="file" accept="audio/*" style="display:none">
+        <audio id="audio-el" controls style="display:none"></audio>
+        <label>
+            Input device (mic mode)
+            <select id="device-picker"></select>
+        </label>
+
+        <h2>Sensitivity</h2>
+        <input id="sensitivity" type="range" min="0.5" max="10" step="0.5" value="3">
+
+        <div class="hint">Pick an audio file to play in-page (you'll hear it and see it visualized). "Share tab audio" lets you visualize sound from any tab.</div>
+        <div class="hint"><b>Keys:</b> ←/→ or [/] cycle shaders · r random · f fullscreen</div>
+    </div>
+
+    <div id="no-webgpu">
+        <h1>WebGPU not supported</h1>
+        <p>Try Chrome 113+, Edge, or Firefox Nightly with <code>dom.webgpu.enabled</code> set.</p>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
