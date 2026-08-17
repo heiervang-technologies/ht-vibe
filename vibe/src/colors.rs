@@ -42,6 +42,15 @@ impl ColorConfig {
     pub fn as_array(&self) -> [[f32; 3]; 4] {
         [self.color1, self.color2, self.color3, self.color4]
     }
+
+    pub fn from_array(colors: [[f32; 3]; 4]) -> Self {
+        Self {
+            color1: colors[0],
+            color2: colors[1],
+            color3: colors[2],
+            color4: colors[3],
+        }
+    }
 }
 
 /// Manages color configuration with file watching via mtime checks.
@@ -98,5 +107,41 @@ impl ColorManager {
     /// Get the current color configuration as an array.
     pub fn colors(&self) -> [[f32; 3]; 4] {
         self.config.as_array()
+    }
+
+    pub fn set_colors(&mut self, colors: [[f32; 3]; 4]) -> std::io::Result<()> {
+        self.config = ColorConfig::from_array(colors);
+        std::fs::write(
+            &self.path,
+            toml::to_string_pretty(&self.config).expect("serialize color configuration"),
+        )?;
+        self.last_mtime = std::fs::metadata(&self.path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        Ok(())
+    }
+
+    pub fn randomize(&mut self) -> std::io::Result<[[f32; 3]; 4]> {
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        let mut seed = nanos ^ (std::process::id() as u64).rotate_left(17);
+        let mut colors = [[0.0; 3]; 4];
+
+        for color in &mut colors {
+            for channel in color {
+                // SplitMix64 gives a compact, dependency-free stream suitable for palettes.
+                seed = seed.wrapping_add(0x9E3779B97F4A7C15);
+                let mut z = seed;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+                z ^= z >> 31;
+                *channel = ((z >> 40) as f32) / ((1_u32 << 24) - 1) as f32;
+            }
+        }
+
+        self.set_colors(colors)?;
+        Ok(colors)
     }
 }

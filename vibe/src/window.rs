@@ -1,17 +1,27 @@
 use std::{
+    collections::HashSet,
     path::PathBuf,
+    process::Command,
     sync::{mpsc::Receiver, Arc},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::{bail, Context};
 use notify::{INotifyWatcher, Watcher};
-use tracing::error;
-use vibe_audio::{fetcher::SystemAudioFetcher, SampleProcessor};
+use tracing::{error, info};
+use vibe_audio::{
+    fetcher::SystemAudioFetcher,
+    util::{DeviceInfo, DeviceType},
+    SampleProcessor,
+};
 use vibe_renderer::{components::ComponentAudio, Renderer, RendererDescriptor};
 use winit::{
-    application::ApplicationHandler, dpi::PhysicalPosition, event::WindowEvent,
-    event_loop::EventLoop, keyboard::Key, platform::wayland::WindowAttributesExtWayland,
+    application::ApplicationHandler,
+    dpi::PhysicalPosition,
+    event::WindowEvent,
+    event_loop::EventLoop,
+    keyboard::{Key, KeyCode, PhysicalKey},
+    platform::wayland::WindowAttributesExtWayland,
     window::Window,
 };
 
@@ -21,6 +31,8 @@ use crate::{
         component::{ComponentConfig, Config, ConfigError},
         OutputConfig,
     },
+    overlay::OverlayChanges,
+    settings::{BindingTarget, UserSettings},
     types::size::Size,
 };
 
@@ -31,6 +43,9 @@ struct State<'a> {
     last_cursor_pos: PhysicalPosition<f64>,
 
     components: Vec<Box<dyn ComponentAudio<SystemAudioFetcher>>>,
+    egui_context: egui::Context,
+    egui_winit: egui_winit::State,
+    egui_renderer: egui_wgpu::Renderer,
 }
 
 impl State<'_> {
@@ -44,12 +59,36 @@ impl State<'_> {
             crate::output::get_surface_config(renderer.adapter(), &surface, Size::from(size));
         surface.configure(renderer.device(), &surface_config);
 
+        let egui_context = egui::Context::default();
+        egui_context.set_visuals(egui::Visuals::dark());
+        egui_context.style_mut_of(egui::Theme::Dark, |style| {
+            style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+            style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(18, 20, 26, 246);
+            style.visuals.panel_fill = egui::Color32::from_rgba_premultiplied(18, 20, 26, 246);
+        });
+        let egui_winit = egui_winit::State::new(
+            egui_context.clone(),
+            egui::ViewportId::ROOT,
+            window.as_ref(),
+            Some(window.scale_factor() as f32),
+            window.theme(),
+            Some(renderer.device().limits().max_texture_dimension_2d as usize),
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(
+            renderer.device(),
+            surface_config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
+
         Self {
             surface,
             surface_config,
             window,
             last_cursor_pos: PhysicalPosition::new(0.0, 0.0),
             components: Vec::new(),
+            egui_context,
+            egui_winit,
+            egui_renderer,
         }
     }
 
@@ -90,7 +129,7 @@ impl State<'_> {
         }
     }
 
-    pub fn render(&mut self, renderer: &Renderer) {
+    pub fn render(&mut self, renderer: &Renderer, overlay: Option<egui::FullOutput>) {
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
             wgpu::CurrentSurfaceTexture::Occluded
@@ -120,6 +159,73 @@ impl State<'_> {
                 renderer.queue(),
                 &surface_texture.texture,
             );
+        }
+
+        if let Some(output) = overlay {
+            self.egui_winit
+                .handle_platform_output(&self.window, output.platform_output);
+
+            let paint_jobs = self
+                .egui_context
+                .tessellate(output.shapes, output.pixels_per_point);
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [self.surface_config.width, self.surface_config.height],
+                pixels_per_point: output.pixels_per_point,
+            };
+
+            for (id, image_delta) in &output.textures_delta.set {
+                self.egui_renderer.update_texture(
+                    renderer.device(),
+                    renderer.queue(),
+                    *id,
+                    image_delta,
+                );
+            }
+
+            let mut encoder =
+                renderer
+                    .device()
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("vibe settings overlay"),
+                    });
+            let user_commands = self.egui_renderer.update_buffers(
+                renderer.device(),
+                renderer.queue(),
+                &mut encoder,
+                &paint_jobs,
+                &screen_descriptor,
+            );
+
+            {
+                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("vibe settings overlay"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
+                self.egui_renderer.render(
+                    &mut render_pass.forget_lifetime(),
+                    &paint_jobs,
+                    &screen_descriptor,
+                );
+            }
+
+            renderer.queue().submit(
+                user_commands
+                    .into_iter()
+                    .chain(std::iter::once(encoder.finish())),
+            );
+
+            for id in &output.textures_delta.free {
+                self.egui_renderer.free_texture(id);
+            }
         }
 
         surface_texture.present();
@@ -235,14 +341,29 @@ struct OutputRenderer<'a> {
     // WASD held-state, written to the iKeys uniform every frame.
     keys: [f32; 4],
     game: GameState,
+
+    settings: UserSettings,
+    overlay_open: bool,
+    binding_capture: Option<BindingTarget>,
+    pressed_keys: HashSet<String>,
+    audio_sources: Vec<DeviceInfo>,
+    selected_audio_source: Option<String>,
+    status: Option<String>,
+    last_color_randomization: Instant,
 }
 
 impl OutputRenderer<'_> {
     pub fn new(output_name: String) -> anyhow::Result<Self> {
         let config = crate::config::load()?;
+        let selected_audio_source = config
+            .audio_config
+            .as_ref()
+            .and_then(|audio| audio.output_device_id.clone());
 
         let renderer = Renderer::new(&RendererDescriptor::from(&config.graphics_config));
         let processor = config.sample_processor()?;
+        let audio_sources =
+            vibe_audio::util::get_device_infos(DeviceType::Input).unwrap_or_default();
 
         let (output_config_path, output_config) = {
             let Some((path, config)) = crate::output::config::load(&output_name) else {
@@ -293,7 +414,240 @@ impl OutputRenderer<'_> {
             color_manager: ColorManager::new(),
             keys: [0.0; 4],
             game: GameState::new(0.0),
+            settings: UserSettings::load(),
+            overlay_open: false,
+            binding_capture: None,
+            pressed_keys: HashSet::new(),
+            audio_sources,
+            selected_audio_source,
+            status: None,
+            last_color_randomization: Instant::now(),
         })
+    }
+
+    fn save_settings(&mut self) {
+        match self.settings.save() {
+            Ok(()) => self.status = Some("Settings saved".into()),
+            Err(err) => {
+                error!("Couldn't save settings: {err}");
+                self.status = Some(format!("Could not save settings: {err}"));
+            }
+        }
+    }
+
+    fn randomize_colors(&mut self) {
+        match self.color_manager.randomize() {
+            Ok(_) => {
+                self.last_color_randomization = Instant::now();
+                self.status = Some("Palette randomized".into());
+            }
+            Err(err) => {
+                error!("Couldn't save randomized colors: {err}");
+                self.status = Some(format!("Could not save palette: {err}"));
+            }
+        }
+    }
+
+    fn refresh_audio_sources(&mut self) {
+        match vibe_audio::util::get_device_infos(DeviceType::Input) {
+            Ok(sources) => {
+                self.audio_sources = sources;
+                self.status = Some(format!(
+                    "Found {} audio capture source{}",
+                    self.audio_sources.len(),
+                    if self.audio_sources.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ));
+            }
+            Err(err) => {
+                error!("Couldn't enumerate audio sources: {err}");
+                self.status = Some(format!("Could not list audio sources: {err}"));
+            }
+        }
+    }
+
+    fn select_audio_source(&mut self, source: Option<String>) {
+        let result = (|| -> anyhow::Result<()> {
+            let mut config = crate::config::load()?;
+            config.audio_config.get_or_insert_default().output_device_id = source.clone();
+
+            let new_processor = config.sample_processor()?;
+            config.save()?;
+            self.processor = new_processor;
+            self.selected_audio_source = source;
+
+            if let Some(state) = self.state.as_mut() {
+                state
+                    .refresh_components(
+                        &self.renderer,
+                        &self.processor,
+                        &self.output_config.components,
+                    )
+                    .map_err(anyhow::Error::msg)?;
+            }
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => self.status = Some("Audio source connected".into()),
+            Err(err) => {
+                error!("Couldn't switch audio source: {err:?}");
+                self.status = Some(format!("Could not connect audio source: {err}"));
+            }
+        }
+    }
+
+    fn apply_overlay_changes(&mut self, changes: OverlayChanges, edited_colors: [[f32; 3]; 4]) {
+        if changes.palette_changed {
+            match self.color_manager.set_colors(edited_colors) {
+                Ok(()) => self.status = Some("Palette saved".into()),
+                Err(err) => {
+                    error!("Couldn't save palette: {err}");
+                    self.status = Some(format!("Could not save palette: {err}"));
+                }
+            }
+        }
+        if changes.randomize_now {
+            self.randomize_colors();
+        }
+        if changes.settings_changed {
+            self.save_settings();
+        }
+        if changes.refresh_audio_sources {
+            self.refresh_audio_sources();
+        }
+        if let Some(source) = changes.audio_source {
+            if source != self.selected_audio_source {
+                self.select_audio_source(source);
+            }
+        }
+    }
+
+    fn set_binding(&mut self, target: BindingTarget, key: String) {
+        match target {
+            BindingTarget::Macro(index) => {
+                if let Some(command_macro) = self.settings.macros.get_mut(index) {
+                    command_macro.key = key;
+                }
+            }
+            _ => self.settings.keybinds.set(target, key),
+        }
+        self.binding_capture = None;
+        self.save_settings();
+    }
+
+    fn recompute_movement_keys(&mut self) {
+        let binds = &self.settings.keybinds;
+        self.keys = [
+            self.pressed_keys.contains(&binds.forward),
+            self.pressed_keys.contains(&binds.left),
+            self.pressed_keys.contains(&binds.backward),
+            self.pressed_keys.contains(&binds.right),
+        ]
+        .map(f32::from);
+    }
+
+    fn run_matching_macros(&mut self, key: &str) {
+        for command_macro in &self.settings.macros {
+            if !command_macro.enabled
+                || command_macro.key != key
+                || command_macro.command.trim().is_empty()
+            {
+                continue;
+            }
+
+            let command = command_macro.command.clone();
+            let name = command_macro.name.clone();
+            match Command::new("sh").args(["-lc", &command]).spawn() {
+                Ok(_) => {
+                    info!("Started Vibe macro '{name}'");
+                    self.status = Some(format!("Ran macro: {name}"));
+                }
+                Err(err) => {
+                    error!("Couldn't start macro '{name}': {err}");
+                    self.status = Some(format!("Could not run macro {name}: {err}"));
+                }
+            }
+        }
+    }
+
+    fn handle_key_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        event: &winit::event::KeyEvent,
+    ) {
+        tracing::debug!(
+            physical_key = ?event.physical_key,
+            logical_key = ?event.logical_key,
+            state = ?event.state,
+            repeat = event.repeat,
+            "Received window key event"
+        );
+        let Some(key) = key_name(event) else {
+            return;
+        };
+        let pressed = event.state == winit::event::ElementState::Pressed;
+
+        if pressed && !event.repeat {
+            if let Some(target) = self.binding_capture {
+                if key == "Escape" {
+                    self.binding_capture = None;
+                } else {
+                    self.set_binding(target, key);
+                }
+                return;
+            }
+
+            if key == self.settings.keybinds.toggle_overlay {
+                self.overlay_open = !self.overlay_open;
+                self.pressed_keys.clear();
+                self.keys = [0.0; 4];
+                if !self.overlay_open {
+                    self.binding_capture = None;
+                }
+                return;
+            }
+        }
+
+        // While the overlay is open, typing belongs exclusively to the UI.
+        if self.overlay_open {
+            return;
+        }
+
+        if pressed {
+            self.pressed_keys.insert(key.clone());
+        } else {
+            self.pressed_keys.remove(&key);
+        }
+        self.recompute_movement_keys();
+
+        if !pressed || event.repeat {
+            return;
+        }
+
+        if key == self.settings.keybinds.quit {
+            event_loop.exit();
+        } else if key == self.settings.keybinds.randomize_colors {
+            self.randomize_colors();
+        } else if key == self.settings.keybinds.fire {
+            let now = self.time.elapsed().as_secs_f32();
+            Self::try_fire_player_missile(&mut self.game, now);
+        }
+        self.run_matching_macros(&key);
+    }
+
+    fn maybe_auto_randomize_colors(&mut self) {
+        if !self.settings.color_randomization.enabled {
+            return;
+        }
+        let interval =
+            Duration::from_secs_f32(self.settings.color_randomization.interval_seconds.max(1.0));
+        if self.last_color_randomization.elapsed() >= interval {
+            self.randomize_colors();
+        }
     }
 
     pub fn config_is_modified(&self) -> bool {
@@ -644,18 +998,73 @@ impl ApplicationHandler for OutputRenderer<'_> {
             }
         }
 
-        let state = self.state.as_mut().unwrap();
+        // A captured key is configuration, not text input for the overlay.
+        if self.binding_capture.is_some() {
+            if let WindowEvent::KeyboardInput { event, .. } = &event {
+                if event.state == winit::event::ElementState::Pressed && !event.repeat {
+                    self.handle_key_event(event_loop, event);
+                    return;
+                }
+            }
+        }
+
+        let egui_consumed = {
+            let state = self.state.as_mut().unwrap();
+            state
+                .egui_winit
+                .on_window_event(&state.window, &event)
+                .consumed
+        };
+
+        if let WindowEvent::KeyboardInput { event, .. } = &event {
+            self.handle_key_event(event_loop, event);
+        }
 
         match event {
             WindowEvent::RedrawRequested => {
-                state.window.request_redraw();
+                self.maybe_auto_randomize_colors();
 
-                // Check for color config changes
                 self.color_manager.check_and_reload();
+                let mut edited_colors = self.color_manager.colors();
+
+                let overlay = if self.overlay_open {
+                    let (context, input) = {
+                        let state = self.state.as_mut().unwrap();
+                        (
+                            state.egui_context.clone(),
+                            state.egui_winit.take_egui_input(&state.window),
+                        )
+                    };
+                    let mut changes = OverlayChanges::default();
+                    let output = context.run_ui(input, |ui| {
+                        changes = crate::overlay::show(
+                            ui.ctx(),
+                            &mut self.overlay_open,
+                            &mut self.settings,
+                            &mut self.binding_capture,
+                            &mut edited_colors,
+                            &self.audio_sources,
+                            &self.selected_audio_source,
+                            &self.status,
+                        );
+                    });
+                    if !self.overlay_open {
+                        self.binding_capture = None;
+                        self.pressed_keys.clear();
+                        self.keys = [0.0; 4];
+                    }
+                    self.apply_overlay_changes(changes, edited_colors);
+                    Some(output)
+                } else {
+                    None
+                };
+
+                // Overlay actions may have changed the palette.
                 let colors = self.color_manager.colors();
 
                 self.processor.process_next_samples();
                 let now = self.time.elapsed().as_secs_f32();
+                let state = self.state.as_mut().unwrap();
                 for component in state.components.iter_mut() {
                     component.update_time(self.renderer.queue(), now);
                     component.update_audio(self.renderer.queue(), &self.processor);
@@ -677,7 +1086,8 @@ impl ApplicationHandler for OutputRenderer<'_> {
                     component.update_combat(self.renderer.queue(), projectiles, slow);
                 }
 
-                state.render(&self.renderer);
+                state.render(&self.renderer, overlay);
+                state.window.request_redraw();
             }
 
             WindowEvent::Resized(new_size) => {
@@ -688,29 +1098,12 @@ impl ApplicationHandler for OutputRenderer<'_> {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
-            WindowEvent::KeyboardInput { event, .. }
-                if event.logical_key == Key::Character("q".into()) =>
-            {
-                event_loop.exit()
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                let pressed = match event.state {
-                    winit::event::ElementState::Pressed => 1.0,
-                    winit::event::ElementState::Released => 0.0,
-                };
-                if let Key::Character(s) = &event.logical_key {
-                    match s.as_str() {
-                        "w" | "W" => self.keys[0] = pressed,
-                        "a" | "A" => self.keys[1] = pressed,
-                        "s" | "S" => self.keys[2] = pressed,
-                        "d" | "D" => self.keys[3] = pressed,
-                        _ => {}
-                    }
-                }
-            }
+            WindowEvent::KeyboardInput { .. } => {}
             WindowEvent::CursorMoved { position, .. } => {
-                if let Some(state) = self.state.as_mut() {
-                    state.update_mouse_pos(self.renderer.queue(), position);
+                if !self.overlay_open && !egui_consumed {
+                    if let Some(state) = self.state.as_mut() {
+                        state.update_mouse_pos(self.renderer.queue(), position);
+                    }
                 }
             }
             WindowEvent::MouseInput {
@@ -718,7 +1111,9 @@ impl ApplicationHandler for OutputRenderer<'_> {
                 button,
                 ..
             } => {
-                if button == winit::event::MouseButton::Left
+                if !self.overlay_open
+                    && !egui_consumed
+                    && button == winit::event::MouseButton::Left
                     && button_state == winit::event::ElementState::Pressed
                 {
                     let current_time = self.time.elapsed().as_secs_f32();
@@ -748,17 +1143,53 @@ impl ApplicationHandler for OutputRenderer<'_> {
                                 Self::try_fire_player_missile(&mut self.game, current_time);
                                 self.game.last_click_time = current_time;
                             }
-                            state.update_mouse_click(self.renderer.queue(), current_time);
+                            self.state
+                                .as_mut()
+                                .unwrap()
+                                .update_mouse_click(self.renderer.queue(), current_time);
                         }
                         _ => {
                             // Debounced-out: keep existing afterburner-click flow.
-                            state.update_mouse_click(self.renderer.queue(), current_time);
+                            self.state
+                                .as_mut()
+                                .unwrap()
+                                .update_mouse_click(self.renderer.queue(), current_time);
                         }
                     }
                 }
             }
             _ => {}
         }
+    }
+}
+
+fn key_name(event: &winit::event::KeyEvent) -> Option<String> {
+    match &event.logical_key {
+        // Named keys are layout-independent and are more reliable than synthetic
+        // physical codes (some Wayland injectors report F1 as physical Escape).
+        Key::Named(named) => Some(format!("{named:?}")),
+        Key::Character(character) => match event.physical_key {
+            PhysicalKey::Code(code) => Some(match code {
+                KeyCode::Backquote => "Backquote".into(),
+                _ => format!("{code:?}"),
+            }),
+            PhysicalKey::Unidentified(_) => {
+                let character = character.to_uppercase();
+                if character.chars().count() != 1 {
+                    None
+                } else if character.chars().all(|c| c.is_ascii_alphabetic()) {
+                    Some(format!("Key{character}"))
+                } else if character.chars().all(|c| c.is_ascii_digit()) {
+                    Some(format!("Digit{character}"))
+                } else {
+                    Some(character)
+                }
+            }
+        },
+        Key::Dead(_) | Key::Unidentified(_) => match event.physical_key {
+            PhysicalKey::Code(code) => Some(format!("{code:?}")),
+            PhysicalKey::Unidentified(_) => None,
+        },
     }
 }
 
