@@ -1,3 +1,51 @@
+# ht-vibe
+
+_[Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vibe](https://github.com/TornaxO7/vibe)_
+
+[HT Discussions](https://github.com/orgs/heiervang-technologies/discussions) | [Fork Management Guide](https://github.com/orgs/heiervang-technologies/discussions/3) | [Upstream: TornaxO7/vibe](https://github.com/TornaxO7/vibe)
+
+---
+
+## HT Fork Changes
+
+This is the [Heiervang Technologies](https://github.com/heiervang-technologies) fork of [Vibe](https://github.com/TornaxO7/vibe). The `ht` branch contains the following changes on top of upstream `main`:
+
+### Changelog ([full changelog](./HT_CHANGELOG.md))
+
+#### Features
+- **Auto-discovered WGSL shader catalog** — 29 bundled shaders in `shaders/`, including the original HT set plus cymatics, driving biomes, cathedral_of_noise, neural_bloom, osint_hud, stormveil, and other showcase effects
+- **Click-to-interact Pokemon shader** — `iMouseClick` (vec4f, binding 8) and `iLocalTime` (binding 9) uniforms with GPU pixel readback for species identification. Writes click data to `/tmp/vibe-click` and species to `/tmp/vibe-click-species`
+- **BPM detection** — Spectral flux + autocorrelation algorithm with median smoothing. Exposes `iBPM` uniform (binding 4) to shaders and writes BPM to `/tmp/vibe-bpm` for Waybar integration
+- **4-color palette system** — Configurable via `~/.config/vibe/colors.toml` with live file-watching reload. Exposes `iColors` uniform (binding 5) with fallback defaults
+- **Web visualizer build** — `vibe-web/` provides a browser-based WebGPU preview with shader auto-discovery and a dedicated app-window launcher
+
+#### Fixes
+- **AMD GPU compatibility** — Prefer Bgra8Unorm/Rgba8Unorm surface format
+- **Audio capture** — Use input device (monitor source) instead of output device
+- **Shader load flash** — Start normalize_factor low to prevent blinding flash on shader load
+
+#### Utilities ([`utils/`](./utils/README.md))
+- **`cycle-shader.sh`** — Cycle through all discovered `~/.config/vibe/shaders/*.wgsl` shaders for any output/window config (next/prev/by-name)
+- **`vibe-web-window.sh`** — Launch a dedicated browser app-window for a selected or random `vibe-web` shader
+- **`vibe-key-cycle.sh`** — Keybinding helper that cycles shaders on the focused vibe window (Hyprland, Sway, KDE)
+- **`randomize-colors.sh`** — Randomize the 4-color palette (keybinding-friendly, multi-compositor)
+- **`pokemon-click-cry.py`** — Click-triggered Pokemon cry daemon (watches `/tmp/vibe-click-species`)
+- **`pokemon-cries-daemon.sh`** — Ambient random Pokemon cries every 60-180s
+- **`cluster-status-feeder.sh`** — Feeds live Kubernetes cluster metrics into `cluster.wgsl` shader constants (configurable nodes)
+
+#### Documentation
+- **[SHADER_WRITING.md](./SHADER_WRITING.md)** — 1000+ line comprehensive WGSL shader development guide covering uniforms, audio reactivity, visual techniques, and performance optimization
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Fork management, branch conventions, and contribution guidelines
+
+### Branch Strategy
+
+- **`main`** — Clean mirror of upstream `main`. Never commit directly.
+- **`ht`** — Default branch with all HT-specific changes.
+
+For questions or discussion, visit the [HT Discussions](https://github.com/orgs/heiervang-technologies/discussions) page. See the [Fork Management Guide](https://github.com/orgs/heiervang-technologies/discussions/3) for branch conventions and sync workflow.
+
+---
+
 # Vibe
 
 `vibe` (to have a nice vibe with your music) is a desktop music visualizer inspired by [glava] and [shadertoy] for wayland!

@@ -1,5 +1,6 @@
 use colored::Colorize;
 use image::{buffer::ConvertBuffer, ImageReader, RgbaImage};
+use pollster::FutureExt;
 use std::{io::Cursor, path::Path};
 use vibe_audio::SampleProcessor;
 use vibe_renderer::{ComponentAudio, Renderer, RendererDescriptor};
@@ -38,6 +39,32 @@ const RED: [f32; 4] = [1., 0., 0., 1.];
 const WHITE: [f32; 4] = [1f32; 4];
 const GREEN: [f32; 4] = [0., 1., 0., 1.];
 
+fn software_renderer_available() -> bool {
+    let instance = wgpu::Instance::new(
+        wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        }
+        .with_env(),
+    );
+
+    let required_features =
+        wgpu::Features::FLOAT32_FILTERABLE | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM;
+
+    let Ok(adapter) = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            force_fallback_adapter: true,
+            ..Default::default()
+        })
+        .block_on()
+    else {
+        return false;
+    };
+
+    adapter.features().contains(required_features)
+}
+
 pub struct Tester<'a> {
     pub output_width: u32,
     pub output_height: u32,
@@ -52,8 +79,18 @@ pub struct Tester<'a> {
 
 impl<'a> Tester<'a> {
     pub fn new(width: u32, height: u32) -> Self {
+        let has_software_renderer = software_renderer_available();
+        if !has_software_renderer && std::env::var_os("VIBE_TEST_ALLOW_HARDWARE_RENDERER").is_none()
+        {
+            eprintln!(
+                "Skipping visual renderer test: no software Vulkan adapter is available. \
+                 Set VIBE_TEST_ALLOW_HARDWARE_RENDERER=1 to compare against hardware output."
+            );
+            std::process::exit(0);
+        }
+
         let renderer = Renderer::new(&RendererDescriptor {
-            fallback_to_software_rendering: true,
+            fallback_to_software_rendering: has_software_renderer,
             ..Default::default()
         });
         let sample_processor = {

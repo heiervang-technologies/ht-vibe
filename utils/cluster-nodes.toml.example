@@ -1,0 +1,20 @@
+# Cluster node definitions for cluster-status-feeder.sh
+# Copy to ~/.config/vibe/cluster-nodes.toml and edit for your cluster.
+#
+# Fields:
+#   name   - Kubernetes node name (used with kubectl)
+#   ip     - SSH-reachable IP for remote GPU metrics
+#   gpus   - Number of NVIDIA GPUs (0 if none)
+#   local  - true if this is the machine running the feeder (skips SSH)
+
+[[nodes]]
+name = "node1"
+ip = "192.168.1.10"
+gpus = 1
+local = true
+
+[[nodes]]
+name = "gpu-worker"
+ip = "192.168.1.20"
+gpus = 2
+local = false
