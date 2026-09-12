@@ -8,6 +8,7 @@ For upstream changes, see [vibe/CHANGELOG.md](./vibe/CHANGELOG.md).
 
 ### Features
 
+- **Prismatic Loom geometric shader** — `prismatic_loom.wgsl` renders the preimage of an interwoven silk surface under finite Mandelbrot polynomial iterates. A smooth traversal of recursion depth, complex source slices, and torsion deforms actual ribbon geometry, openings, and silhouette. Bass and mids steer the geometry; treble lights the silk. Includes palette integration, mouse steering, click plucks, native/web discovery, and an animated geometric preview.
 - **Portable utility scripts** — Shader cycling, color randomization, Pokemon cry daemons, and K8s cluster status feeder with multi-compositor support (Hyprland, Sway, KDE Plasma) via shared `utils/lib/compositor.sh` abstraction ([427477c](https://github.com/heiervang-technologies/ht-vibe/commit/427477c))
 - **18 custom WGSL shaders** — aurora, cluster, deep_sea, event_horizon, grass, liquid, mandelbrot_light, monolith, nebula, plasma, pokemon_grass, pokemon_grass_3d, singularity, solar_system, starfield, tesseract, vortex, waveform ([b497b80](https://github.com/heiervang-technologies/ht-vibe/commit/b497b80))
 - **Auto-discovered WGSL shader catalog** — Shader cycling now discovers `*.wgsl` from the configured shader directory instead of relying on a hardcoded list, so newly added shaders become available automatically.

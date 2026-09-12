@@ -13,7 +13,8 @@ This is the [Heiervang Technologies](https://github.com/heiervang-technologies) 
 ### Changelog ([full changelog](./HT_CHANGELOG.md))
 
 #### Features
-- **Auto-discovered WGSL shader catalog** — 29 bundled shaders in `shaders/`, including the original HT set plus cymatics, driving biomes, cathedral_of_noise, neural_bloom, osint_hud, stormveil, and other showcase effects
+- **Auto-discovered WGSL shader catalog** — Bundled shaders in `shaders/`, including the original HT set plus cymatics, driving biomes, cathedral_of_noise, neural_bloom, osint_hud, stormveil, and other showcase effects
+- **[Prismatic Loom](./shaders/PRISMATIC_LOOM.md)** — A Mandelbrot-derived geometric transformation bends and branches the actual silk ribbons, openings, and silhouette. Audio and a slow ambient route traverse recursion depth, complex slices, and physical torsion.
 - **Click-to-interact Pokemon shader** — `iMouseClick` (vec4f, binding 8) and `iLocalTime` (binding 9) uniforms with GPU pixel readback for species identification. Writes click data to `/tmp/vibe-click` and species to `/tmp/vibe-click-species`
 - **BPM detection** — Spectral flux + autocorrelation algorithm with median smoothing. Exposes `iBPM` uniform (binding 4) to shaders and writes BPM to `/tmp/vibe-bpm` for Waybar integration
 - **4-color palette system** — Configurable via `~/.config/vibe/colors.toml` with live file-watching reload. Exposes `iColors` uniform (binding 5) with fallback defaults

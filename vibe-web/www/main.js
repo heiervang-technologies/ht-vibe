@@ -29,6 +29,7 @@ const FALLBACK_SHADERS = [
     'plasma',
     'pokemon_grass',
     'pokemon_grass_3d',
+    'prismatic_loom',
     'singularity',
     'solar_system',
     'solar_system_vivid',
