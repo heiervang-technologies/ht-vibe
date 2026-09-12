@@ -33,7 +33,7 @@ pub struct FragmentCanvas {
     bar_processor: BarProcessor<CubicSplineInterpolation>,
     bpm_detector: BpmDetector,
 
-    // GPU uniform buffers (bindings 0-9, see fragment_preamble.wgsl)
+    // GPU uniform buffers (bindings 0-14, see fragment_preamble.wgsl)
     iresolution: wgpu::Buffer,
     freqs: wgpu::Buffer,
     itime: wgpu::Buffer,
@@ -42,6 +42,11 @@ pub struct FragmentCanvas {
     icolors: wgpu::Buffer,
     imouseclick: wgpu::Buffer,
     ilocaltime: wgpu::Buffer,
+    ikeys: wgpu::Buffer,
+    igamestate: wgpu::Buffer,
+    iaistate: wgpu::Buffer,
+    iprojectiles: wgpu::Buffer,
+    islow: wgpu::Buffer,
     _itexture: Option<TextureCtx>,
 
     // Click state (normalized [0,1] coordinates, see Component::update_mouse_click)
@@ -121,6 +126,41 @@ impl FragmentCanvas {
         let ilocaltime = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Fragment canvas: `iLocalTime` buffer"),
             size: std::mem::size_of::<f32>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let ikeys = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fragment canvas: `iKeys` buffer"),
+            size: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let igamestate = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fragment canvas: `iGameState` buffer"),
+            size: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let iaistate = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fragment canvas: `iAIState` buffer"),
+            size: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let iprojectiles = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fragment canvas: `iProjectiles` buffer"),
+            size: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let islow = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fragment canvas: `iSlow` buffer"),
+            size: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -215,6 +255,61 @@ impl FragmentCanvas {
                 // iLocalTime
                 wgpu::BindGroupLayoutEntry {
                     binding: 9,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // iKeys
+                wgpu::BindGroupLayoutEntry {
+                    binding: 10,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // iGameState
+                wgpu::BindGroupLayoutEntry {
+                    binding: 11,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // iAIState
+                wgpu::BindGroupLayoutEntry {
+                    binding: 12,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // iProjectiles
+                wgpu::BindGroupLayoutEntry {
+                    binding: 13,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // iSlow
+                wgpu::BindGroupLayoutEntry {
+                    binding: 14,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -353,6 +448,26 @@ impl FragmentCanvas {
                     binding: 9,
                     resource: ilocaltime.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: ikeys.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: igamestate.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: iaistate.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 13,
+                    resource: iprojectiles.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 14,
+                    resource: islow.as_entire_binding(),
+                },
             ];
 
             if let Some(texture) = &itexture {
@@ -394,6 +509,11 @@ impl FragmentCanvas {
             icolors,
             imouseclick,
             ilocaltime,
+            ikeys,
+            igamestate,
+            iaistate,
+            iprojectiles,
+            islow,
             _itexture: itexture,
 
             last_click_pos: (-1.0, -1.0),
@@ -581,6 +701,20 @@ impl Component for FragmentCanvas {
             self.readback_buffer.unmap();
             self.readback_frames_remaining -= 1;
         }
+    }
+
+    fn update_keys(&mut self, queue: &wgpu::Queue, keys: [f32; 4]) {
+        queue.write_buffer(&self.ikeys, 0, bytemuck::cast_slice(&keys));
+    }
+
+    fn update_game_state(&mut self, queue: &wgpu::Queue, state: [f32; 4], ai: [f32; 4]) {
+        queue.write_buffer(&self.igamestate, 0, bytemuck::cast_slice(&state));
+        queue.write_buffer(&self.iaistate, 0, bytemuck::cast_slice(&ai));
+    }
+
+    fn update_combat(&mut self, queue: &wgpu::Queue, projectiles: [f32; 4], slow: [f32; 4]) {
+        queue.write_buffer(&self.iprojectiles, 0, bytemuck::cast_slice(&projectiles));
+        queue.write_buffer(&self.islow, 0, bytemuck::cast_slice(&slow));
     }
 
     fn update_colors(&mut self, queue: &wgpu::Queue, colors: &[[f32; 3]; 4]) {

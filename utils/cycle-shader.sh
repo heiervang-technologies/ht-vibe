@@ -13,26 +13,20 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-SHADERS=(
-    "aurora.wgsl"
-    "cluster.wgsl"
-    "deep_sea.wgsl"
-    "event_horizon.wgsl"
-    "grass.wgsl"
-    "liquid.wgsl"
-    "mandelbrot_light.wgsl"
-    "monolith.wgsl"
-    "nebula.wgsl"
-    "plasma.wgsl"
-    "pokemon_grass.wgsl"
-    "pokemon_grass_3d.wgsl"
-    "singularity.wgsl"
-    "solar_system.wgsl"
-    "starfield.wgsl"
-    "tesseract.wgsl"
-    "vortex.wgsl"
-    "waveform.wgsl"
+if [[ ! -d "$SHADER_DIR" ]]; then
+    echo "Shader directory not found: $SHADER_DIR"
+    exit 1
+fi
+
+mapfile -t SHADERS < <(
+    find "$SHADER_DIR" -maxdepth 1 -type f -name '*.wgsl' -printf '%f\n' 2>/dev/null \
+        | sort
 )
+
+if [[ ${#SHADERS[@]} -eq 0 ]]; then
+    echo "No shaders found in $SHADER_DIR"
+    exit 1
+fi
 
 ASSET_DIR="$CONFIG_DIR/assets"
 
@@ -49,7 +43,7 @@ texture_for_shader() {
 CURRENT=$(grep -A2 'fragment_code' "$CONFIG_FILE" | grep -oP 'path = "\K[^"]+' | xargs basename)
 
 # Find current index
-CURRENT_IDX=0
+CURRENT_IDX=-1
 for i in "${!SHADERS[@]}"; do
     if [[ "${SHADERS[$i]}" == "$CURRENT" ]]; then
         CURRENT_IDX=$i
@@ -59,9 +53,17 @@ done
 
 # Determine next shader
 if [[ "$ACTION" == "next" ]]; then
-    NEXT_IDX=$(( (CURRENT_IDX + 1) % ${#SHADERS[@]} ))
+    if [[ $CURRENT_IDX -lt 0 ]]; then
+        NEXT_IDX=0
+    else
+        NEXT_IDX=$(( (CURRENT_IDX + 1) % ${#SHADERS[@]} ))
+    fi
 elif [[ "$ACTION" == "prev" ]]; then
-    NEXT_IDX=$(( (CURRENT_IDX - 1 + ${#SHADERS[@]}) % ${#SHADERS[@]} ))
+    if [[ $CURRENT_IDX -lt 0 ]]; then
+        NEXT_IDX=$(( ${#SHADERS[@]} - 1 ))
+    else
+        NEXT_IDX=$(( (CURRENT_IDX - 1 + ${#SHADERS[@]}) % ${#SHADERS[@]} ))
+    fi
 elif [[ "$ACTION" == "list" ]]; then
     echo "Available shaders:"
     for s in "${SHADERS[@]}"; do
