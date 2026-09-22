@@ -19,6 +19,7 @@ const FALLBACK_SHADERS = [
     'grass',
     'infinite_reliquary',
     'kintsugi_planet',
+    'lantern_tide',
     'liquid',
     'mandelbrot_light',
     'monolith',
