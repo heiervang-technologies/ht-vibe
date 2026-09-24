@@ -2,7 +2,7 @@
 //
 // A slow first-person drift through space that is only very slightly blue:
 // volumetric blue energy curling upward like cold flame, sparse sparks with
-// depth-of-field, and three glass sheets along the lower third (the XMB nod).
+// depth-of-field, and the halo: a vast glass orbital ring along the lower third.
 // Empty on purpose — every UI (setup wizard, menus, lock, greeter) goes on top.
 //
 // Colours are the HAIos identity, not iColors, so the backdrop reads the same
@@ -18,7 +18,7 @@ const ICE   = vec3f(0.780, 0.940, 1.000);
 const SPEED    = 1.0;   // global time scale; the whole scene is slow motion
 const ENERGY   = 1.0;   // volumetric energy brightness
 const SPARKS   = 1.0;   // spark brightness
-const GLASS    = 1.0;   // glass sheet strength (0 = off)
+const GLASS    = 1.0;   // halo ring strength (0 = off)
 const STEPS    = 44;    // raymarch steps; lower on weak GPUs
 const FOCAL    = 1.35;
 
@@ -131,23 +131,31 @@ fn sparks(ro: vec3f, rd: vec3f, t: f32, px: f32) -> vec3f {
     return c;
 }
 
+// The halo: a vast orbital ring seen from just above its plane (friend's halo
+// at planetary scale), a fainter outer ring, and a slow pulse of light that
+// sweeps the visible arc. Distance to the ellipse is first order: (k-1)/|grad k|.
 fn glass(uv: vec2f, t: f32, sway: f32) -> vec3f {
     var c = vec3f(0.0);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
         let fi = f32(i);
-        let x = uv.x + sway * (0.25 + fi * 0.15);
-        let ph = t * 0.055 * (1.0 + fi * 0.35) + fi * 2.1;
-        let y = -0.25 + fi * 0.032
-            + 0.055 * sin(x * 1.1 + ph)
-            + 0.020 * sin(x * 2.7 - t * 0.041 + fi * 4.0);
-        // steeper parts of the sheet catch more light (cheap fresnel)
-        let slope = abs(0.0605 * cos(x * 1.1 + ph) + 0.054 * cos(x * 2.7 - t * 0.041 + fi * 4.0));
-        let d = uv.y - y;
-        let edge = exp(-abs(d) * 420.0) * (0.25 + 3.5 * slope) + exp(-abs(d) * 45.0) * 0.035;
-        let body = select(0.0, exp(d * 6.0) * 0.022, d < 0.0);
-        c += mix(CYAN, ICE, 0.35) * edge + BLUE * body;
+        let C = vec2f(sway * 0.6, -0.66 - fi * 0.035);
+        let r = vec2f(1.45 + fi * 0.36, 0.31 + fi * 0.07);
+        let tilt = 0.03 * sin(t * 0.029 + fi);
+        let o = uv - C;
+        let p = vec2f(cos(tilt) * o.x + sin(tilt) * o.y, -sin(tilt) * o.x + cos(tilt) * o.y);
+        let q = p / r;
+        let k = max(length(q), 1e-4);
+        let d = (k - 1.0) * k / max(length(q / r), 1e-4);
+        let sweep = (t + fi * 11.0 - 26.0 * floor((t + fi * 11.0) / 26.0)) / 26.0;
+        let at = mix(-1.25, 1.25, sweep) * select(-1.0, 1.0, i == 0);
+        let pulse = exp(-pow((q.x - at) * 3.2, 2.0)) * step(0.0, q.y) * (1.0 - fi * 0.5);
+        let line = exp(-abs(d) * (620.0 - fi * 300.0)) * select(0.22, 0.8, i == 0);
+        let soft = exp(-abs(d) * 32.0) * 0.028;
+        let disc = select(0.0, smoothstep(0.0, 0.35, 1.0 - k) * 0.022 * (1.0 - fi), k < 1.0);
+        c += mix(CYAN, ICE, 0.3 + 0.55 * pulse) * (line * (0.35 + 2.4 * pulse) + soft * (1.0 + 1.5 * pulse))
+            + BLUE * disc;
     }
-    return c * smoothstep(1.25, 0.15, abs(uv.x));
+    return c * smoothstep(1.7, 0.5, abs(uv.x));
 }
 
 fn stars(rd: vec3f, t: f32) -> vec3f {
