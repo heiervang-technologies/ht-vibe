@@ -19,7 +19,7 @@ const SPEED    = 1.0;   // global time scale; the whole scene is slow motion
 const ENERGY   = 1.0;   // volumetric energy brightness
 const SPARKS   = 1.0;   // spark brightness
 const GLASS    = 1.0;   // glass sheet strength (0 = off)
-const STEPS    = 26;    // raymarch steps; lower on weak GPUs
+const STEPS    = 44;    // raymarch steps; lower on weak GPUs
 const FOCAL    = 1.35;
 
 fn h21(p: vec2f) -> f32 {
@@ -187,12 +187,14 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     // volumetric energy
     var e_col = vec3f(0.0);
     var trans = 1.0;
-    let ign = fract(52.9829189 * fract(dot(pos.xy, vec2f(0.06711056, 0.00583715))));
-    var d = 0.5 + ign * 0.6;   // interleaved-gradient jitter hides banding without grain
+    // per-frame white-noise jitter: hides banding and, unlike a fixed pattern,
+    // averages out over frames instead of printing a texture on the image
+    let jit = h21(pos.xy * 0.731 + vec2f(fract(iTime * 7.13) * 113.0, fract(iTime * 3.71) * 71.0));
+    var d = 0.5 + jit * 0.18;
     for (var i = 0; i < STEPS; i++) {
         let p = ro + rd * d;
         let e = energy(p, t);
-        let dt = 0.6 + d * 0.075;
+        let dt = 0.35 + d * 0.06;
         let fade = exp(-d * 0.065) * smoothstep(1.5, 6.0, d);
         let em = BLUE * e.x * 0.05 + mix(mix(BLUE, CYAN, 0.55), ICE, e.y * e.y) * e.y * 1.5;
         e_col += em * trans * dt * fade;
