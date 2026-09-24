@@ -60,6 +60,11 @@ fn fbm3(p0: vec3f) -> f32 {
     return s / 0.875;
 }
 
+// Two octaves only: the flame veins must stay smooth, never grainy.
+fn fbm2(p: vec3f) -> f32 {
+    return (vnoise(p) * 0.5 + vnoise(p * 2.03 + vec3f(1.7, 9.2, 3.1)) * 0.25) / 0.75;
+}
+
 // The drift path: forward, with a lazy weave. Everything is a function of t
 // so the camera never jumps.
 fn cam_pos(t: f32) -> vec3f {
@@ -76,12 +81,12 @@ fn energy(p: vec3f, t: f32) -> vec2f {
     // gentle updraft through the warp = flames that rise in slow motion
     let qq = q + w * 1.7 + vec3f(0.0, -t * 0.028, 0.0);
     let haze = fbm3(qq);
-    let dens = smoothstep(0.56, 0.92, haze);
-    if (dens < 0.02) {
+    let dens = smoothstep(0.54, 1.05, haze);
+    if (dens < 0.002) {
         return vec2f(dens, 0.0);
     }
-    let r = 1.0 - abs(2.0 * fbm3(qq * 1.9 + vec3f(3.3, 0.0, 1.1)) - 1.0);
-    let fil = pow(r, 14.0) * sqrt(dens);
+    let r = 1.0 - abs(2.0 * fbm2(qq * 1.3 + vec3f(3.3, 0.0, 1.1)) - 1.0);
+    let fil = pow(r, 7.0) * sqrt(dens) * 0.8;
     return vec2f(dens, fil);
 }
 
@@ -109,15 +114,17 @@ fn sparks(ro: vec3f, rd: vec3f, t: f32, px: f32) -> vec3f {
             continue;   // sparse: most cells are empty space
         }
         let wob = vec2f(sin(t * 0.5 + r.y * 40.0), cos(t * 0.4 + r.x * 60.0)) * 0.08;
-        let sp = (cell + vec2f(0.2) + 0.6 * r.yx) * CS + wob;
+        let sp = (cell + vec2f(0.3) + 0.4 * r.yx) * CS + wob;
         let dist = length(xy - sp);
         let size = 0.010 + 0.022 * pow(r.y, 4.0);
         let sharp = max(size, d * px * 1.2);
-        let rad = max(sharp, abs(d - FOCUS) * 0.018);   // defocus = bokeh
+        // defocus = bokeh, capped so the glow always dies inside its own cell
+        // (a halo cut off at the cell edge shows up as a straight seam)
+        let rad = min(max(sharp, abs(d - FOCUS) * 0.018), 0.08);
         let amp = clamp(pow(sharp / rad, 1.4), 0.10, 1.0);
         let tw = 0.55 + 0.45 * sin(t * (0.8 + 2.0 * r.x) + r.y * 50.0);
         let core = exp(-(dist * dist) / (rad * rad));
-        let halo = exp(-dist / (rad * 5.0)) * 0.12;
+        let halo = exp(-(dist * dist) / (rad * rad * 4.0)) * 0.15;
         let hot = core * amp;
         c += mix(CYAN, ICE, clamp(hot, 0.0, 1.0)) * (hot * 1.6 + halo * amp) * tw * near * far;
     }
@@ -187,16 +194,15 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     // volumetric energy
     var e_col = vec3f(0.0);
     var trans = 1.0;
-    // per-frame white-noise jitter: hides banding and, unlike a fixed pattern,
-    // averages out over frames instead of printing a texture on the image
-    let jit = h21(pos.xy * 0.731 + vec2f(fract(iTime * 7.13) * 113.0, fract(iTime * 3.71) * 71.0));
-    var d = 0.5 + jit * 0.18;
+    // No per-pixel jitter: any jitter shows up as grain in the bright veins.
+    // The field is smooth enough that 44 steps don't slice visibly.
+    var d = 0.5;
     for (var i = 0; i < STEPS; i++) {
         let p = ro + rd * d;
         let e = energy(p, t);
         let dt = 0.35 + d * 0.06;
         let fade = exp(-d * 0.065) * smoothstep(1.5, 6.0, d);
-        let em = BLUE * e.x * 0.05 + mix(mix(BLUE, CYAN, 0.55), ICE, e.y * e.y) * e.y * 1.5;
+        let em = BLUE * e.x * 0.03 + mix(mix(BLUE, CYAN, 0.55), ICE, e.y * e.y) * e.y * 1.1;
         e_col += em * trans * dt * fade;
         trans *= exp(-e.x * 0.035 * dt);
         d += dt;
