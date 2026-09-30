@@ -22,6 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: TornaxO7/rust-template@v3-ci-actions
+      # Format the contributor's actual head, not GitHub's synthetic merge ref.
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Check formatting
         if: github.event.pull_request.head.repo.full_name != github.repository
         run: cargo fmt --check --verbose
@@ -36,12 +41,14 @@ jobs:
         if: |
           steps.format_code.outputs.modified == 'true' &&
           github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PR_HEAD_REF: ${{ github.head_ref }}
         run: |
           git config --global user.name 'Github Actions'
           git config --global user.email '<>'
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
           git commit -am "Automated formatting"
-          git push
+          git push origin "HEAD:$PR_HEAD_REF"
 
   clippy:
     if: github.event.pull_request.draft == false
