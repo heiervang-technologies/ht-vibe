@@ -17,6 +17,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  shader-cycle:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check shader cycle syntax
+        run: bash -n utils/cycle-shader.sh
+      - name: Test shader discovery and cycling
+        run: python3 -m unittest discover -s utils/tests -v
+
   formatting:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
