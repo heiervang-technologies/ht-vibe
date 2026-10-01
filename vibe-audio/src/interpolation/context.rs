@@ -113,7 +113,6 @@ mod tests {
     fn no_points_no_sections() {
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: vec![].into(),
-            ..Default::default()
         });
 
         assert!(ctx.supporting_points.is_empty());
@@ -127,7 +126,6 @@ mod tests {
 
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         assert_eq!(ctx.supporting_points.as_ref(), &supporting_points);
@@ -144,7 +142,6 @@ mod tests {
 
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         assert_eq!(ctx.supporting_points.as_ref(), &supporting_points);
@@ -161,7 +158,6 @@ mod tests {
 
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         assert_eq!(ctx.supporting_points.as_ref(), &supporting_points);
@@ -185,7 +181,6 @@ mod tests {
 
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         assert_eq!(ctx.supporting_points.as_ref(), &supporting_points);
@@ -209,7 +204,6 @@ mod tests {
 
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         assert_eq!(ctx.supporting_points.as_ref(), &supporting_points);
@@ -233,7 +227,6 @@ mod tests {
 
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         assert_eq!(ctx.supporting_points.as_ref(), &supporting_points);
@@ -263,7 +256,6 @@ mod tests {
 
         let ctx = InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         assert_eq!(
@@ -293,7 +285,6 @@ mod tests {
 
         InterpolationCtx::new(InterpolatorDescriptor {
             supporting_points: supporting_points.into(),
-            ..Default::default()
         });
     }
 }

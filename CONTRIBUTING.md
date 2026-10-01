@@ -60,3 +60,15 @@ nearest-neighbor sampler selected for pixel art. Their references were refreshed
 after checking the renders against CPU sampling calculations and confirming that
 the old linear sampler reproduced the previous references. Keep the existing
 FLIP comparison threshold when updating reference images.
+
+### Checking Rust code and audio tests
+
+Run the same strict Clippy checks used by CI:
+
+```sh
+nix develop --command cargo clippy -- -D warnings
+nix develop --command cargo clippy -p vibe-audio --all-targets -- -D warnings
+```
+
+The second command also checks the audio crate's test code, including BPM and
+interpolation regressions.
