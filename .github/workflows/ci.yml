@@ -60,8 +60,11 @@ jobs:
 
   tests:
     if: github.event.pull_request.draft == false
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: nix develop .#ci --command bash {0}
     steps:
-      - uses: actions/checkout@v6
+      - uses: TornaxO7/rust-template@v3-ci-actions
       - name: Running tests
-        run: cargo test -j 2 --verbose
+        run: cargo test -j 2 --verbose -- --test-threads=2
