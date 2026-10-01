@@ -49,6 +49,22 @@ bindsym $mod+Shift+c      exec /path/to/utils/randomize-colors.sh
 
 ## Shader Cycling
 
+`cycle-shader.sh` discovers `.wgsl` files at runtime rather than using a fixed
+catalog. It selects the first nonempty shader collection in this order:
+
+1. `$VIBE_SHADER_DIR`, when explicitly set (no fallback if invalid or empty).
+2. `${VIBE_CONFIG_DIR:-$HOME/.config/vibe}/shaders` for user overrides.
+3. `${XDG_DATA_HOME:-$HOME/.local/share}/vibe/shaders` for user installations.
+4. Each `$XDG_DATA_DIRS` entry's `vibe/shaders` directory, in order (defaults to
+   `/usr/local/share:/usr/share`).
+
+Collections are sorted by filename. Shader files and collection directories may
+be symlinks; broken links and nested directories are excluded. Adding or removing
+a shader changes the next invocation's cycle automatically. When the current
+shader is missing, `next` selects the first shader and `prev` selects the last.
+Config files still live under `$VIBE_CONFIG_DIR/output_configs`, independently
+of where the shaders are installed.
+
 ```bash
 # Cycle next/prev for a specific output
 utils/cycle-shader.sh window-1 next
@@ -59,6 +75,16 @@ utils/cycle-shader.sh window-1 nebula
 
 # List available shaders
 utils/cycle-shader.sh window-1 list
+
+# Use the repository collection without copying it into the config directory
+VIBE_SHADER_DIR="$PWD/shaders" utils/cycle-shader.sh window-1 list
+```
+
+Run the cycle helper regression tests without a compositor, GPU, or extra Python
+packages:
+
+```bash
+python3 -m unittest discover -s utils/tests -v
 ```
 
 ## Cluster Status Feeder
@@ -94,6 +120,10 @@ utils/cluster-status-feeder.sh 5 /path/to/cluster.wgsl
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `VIBE_CONFIG_DIR` | `~/.config/vibe` | Output configuration and optional shader override directory |
+| `VIBE_SHADER_DIR` | *(auto-discover)* | Explicit shader collection for `cycle-shader.sh` |
+| `XDG_DATA_HOME` | `~/.local/share` | User data root searched for `vibe/shaders` |
+| `XDG_DATA_DIRS` | `/usr/local/share:/usr/share` | System data roots searched for `vibe/shaders` |
 | `VIBE_CONFIG_DIR` | `~/.config/vibe` | Vibe config directory |
 | `VIBE_COLORS_FILE` | `~/.config/vibe/colors.toml` | Color palette file |
 | `VIBE_CRIES_DIR` | `~/.config/vibe/assets/cries` | Pokemon cry audio files |
