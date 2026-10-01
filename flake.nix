@@ -34,7 +34,7 @@
             let
               rust-toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
             in
-            {
+            rec {
               default =
                 let
                   vibe = pkgs.callPackage (import ./nix/vibe-package.nix) { };
@@ -51,6 +51,11 @@
 
                   LD_LIBRARY_PATH = vibe.LD_LIBRARY_PATH;
                 };
+              # Run the same rendering tests without a physical GPU or display.
+              ci = default.overrideAttrs (_: {
+                VK_DRIVER_FILES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
+                WGPU_BACKEND = "vulkan";
+              });
             };
         };
       };

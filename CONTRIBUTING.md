@@ -40,3 +40,23 @@ Here's a rough overview: More detailed instructions can be seen in the their res
 - `vibe`: Is the desktop application which makes use of the other crates.
 
 For non-fork-specific changes, please follow the upstream contribution guidelines at [TornaxO7/vibe](https://github.com/TornaxO7/vibe).
+
+### Running the rendering tests
+
+Use the pinned software-rendering shell to run the full Rust test suite without
+a physical GPU or desktop session:
+
+```sh
+nix develop .#ci --command cargo test -j 2 -- --test-threads=2
+```
+
+This shell selects Mesa's Lavapipe Vulkan driver. The rendering tests already
+request a software adapter; the driver makes that adapter available consistently
+on local machines and GitHub-hosted runners. The default development shell keeps
+its usual adapter selection.
+
+The textured fragment-canvas and wallpaper reference images use the shared
+nearest-neighbor sampler selected for pixel art. Their references were refreshed
+after checking the renders against CPU sampling calculations and confirming that
+the old linear sampler reproduced the previous references. Keep the existing
+FLIP comparison threshold when updating reference images.

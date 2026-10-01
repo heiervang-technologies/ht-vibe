@@ -106,7 +106,6 @@ impl State<'_> {
             }
         };
 
-
         let view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

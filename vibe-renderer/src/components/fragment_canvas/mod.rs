@@ -571,7 +571,7 @@ impl Component for FragmentCanvas {
                 // Hit! Decode entity_id and write to species file.
                 let species = (red - 1) as i32;
                 if let Ok(mut f) = std::fs::File::create("/tmp/vibe-click-species") {
-                    let _ = write!(f, "species={}\n", species);
+                    let _ = writeln!(f, "species={}", species);
                 }
                 self.readback_frames_remaining = 0;
             } else {
