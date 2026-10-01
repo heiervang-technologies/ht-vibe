@@ -71,6 +71,8 @@ jobs:
       - uses: TornaxO7/rust-template@v3-ci-actions
       - name: Check best practices (Clippy)
         run: cargo clippy --verbose -- -Dwarnings
+      - name: Check audio test targets (Clippy)
+        run: cargo clippy -p vibe-audio --all-targets --verbose -- -Dwarnings
 
   tests:
     if: github.event.pull_request.draft == false

@@ -188,7 +188,6 @@ mod tests {
     fn no_supporting_points() {
         let mut interpolator = CubicSplineInterpolation::new(InterpolatorDescriptor {
             supporting_points: vec![].into(),
-            ..Default::default()
         });
         let mut buffer = vec![];
 
@@ -204,7 +203,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = CubicSplineInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);
@@ -222,7 +220,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = CubicSplineInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);
@@ -241,7 +238,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = CubicSplineInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);
@@ -262,7 +258,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = CubicSplineInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);

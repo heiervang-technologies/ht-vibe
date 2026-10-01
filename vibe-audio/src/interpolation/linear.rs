@@ -53,7 +53,6 @@ mod tests {
     fn zero_supporting_points_and_zero_sections() {
         let mut interpolator = LinearInterpolation::new(InterpolatorDescriptor {
             supporting_points: vec![].into(),
-            ..Default::default()
         });
         let mut buffer = vec![];
 
@@ -67,7 +66,6 @@ mod tests {
 
         let mut interpolator = LinearInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
         let mut buffer = [0f32];
 
@@ -86,7 +84,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = LinearInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);
@@ -105,7 +102,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = LinearInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);
@@ -124,7 +120,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = LinearInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.clone().into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);

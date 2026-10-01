@@ -44,7 +44,6 @@ mod tests {
         let mut buffer = vec![0f32; supporting_points.last().unwrap().x + 1];
         let mut interpolator = NothingInterpolation::new(InterpolatorDescriptor {
             supporting_points: supporting_points.into(),
-            ..Default::default()
         });
 
         interpolator.interpolate(&mut buffer);
