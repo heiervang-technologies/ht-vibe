@@ -64,9 +64,9 @@ impl SampleBuffer {
         // split point
         let split_point = buffer_len.min(data_len);
 
-        // move current values to the end/right of the buffer
+        // Keep the retained history directly after the new samples.
         self.buffer
-            .copy_within(..split_point, buffer_len - split_point);
+            .copy_within(..buffer_len - split_point, split_point);
 
         // write the new data [at the beginning]/[on the left] of the buffer
         self.buffer[..split_point].copy_from_slice(&data[..split_point]);
@@ -110,6 +110,50 @@ mod tests {
             assert_eq!(sample_buffer.buffer.len(), 128);
             assert_eq!(sample_buffer.buffer[0], 69f32);
             assert!(sample_buffer.buffer[1..].iter().all(|&value| value == 0f32));
+        }
+
+        #[test]
+        fn short_chunk_keeps_previous_samples_adjacent() {
+            let mut sample_buffer = SampleBuffer::new(1);
+            sample_buffer.push_before(&[1.0, 2.0, 3.0, 4.0]);
+            sample_buffer.push_before(&[5.0, 6.0]);
+            assert_eq!(
+                &sample_buffer.buffer()[..6],
+                &[5.0, 6.0, 1.0, 2.0, 3.0, 4.0]
+            );
+            assert!(sample_buffer.buffer()[6..]
+                .iter()
+                .all(|&value| value == 0.0));
+        }
+
+        #[test]
+        fn varying_chunk_sizes_preserve_the_latest_window() {
+            let mut sample_buffer = SampleBuffer::new(1);
+            let capacity = sample_buffer.capacity();
+            let mut expected = vec![0.0; capacity];
+            let mut next_sample = 1;
+            for chunk_len in [
+                1,
+                0,
+                3,
+                capacity / 2 - 1,
+                capacity / 2,
+                capacity / 2 + 1,
+                capacity - 1,
+                capacity,
+                capacity + 1,
+                2,
+                0,
+            ] {
+                let chunk: Vec<f32> = (next_sample..next_sample + chunk_len)
+                    .map(|sample| sample as f32)
+                    .collect();
+                next_sample += chunk_len;
+                expected.splice(..0, chunk.iter().copied());
+                expected.truncate(capacity);
+                sample_buffer.push_before(&chunk);
+                assert_eq!(sample_buffer.buffer(), expected, "chunk length {chunk_len}");
+            }
         }
 
         #[test]
