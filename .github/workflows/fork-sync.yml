@@ -10,6 +10,11 @@ on:
         type: boolean
         default: false
 
+# Match the permissions requested by the reusable workflow.
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   sync:
     uses: heiervang-technologies/.github/.github/workflows/fork-sync-reusable.yml@main
@@ -18,5 +23,3 @@ jobs:
       upstream_branch: 'main'
       fork_branch: 'ht'
       skip_rebase: ${{ inputs.skip_rebase || false }}
-    secrets:
-      gh_pat: ${{ secrets.HAI_GH_PAT }}
