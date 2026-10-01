@@ -10,6 +10,11 @@ on:
         type: boolean
         default: false
 
+# Match the permissions requested by the reusable workflow.
+permissions:
+  contents: write
+  issues: write
+
 jobs:
   sync:
     uses: heiervang-technologies/.github/.github/workflows/fork-sync-reusable.yml@main
