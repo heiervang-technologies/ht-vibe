@@ -215,10 +215,10 @@ impl BpmDetector {
         let mut sum = 0.0;
         let count = len - lag;
 
-        // Since we're using a circular buffer, we need to handle wrap-around
-        // For simplicity, we treat the buffer as linear starting from write position
+        // The write position is the oldest sample. Only pair chronological
+        // samples within the history; wrap storage indices, not time.
         for i in 0..count {
-            let idx1 = (self.onset_write_idx + len - count + i) % len;
+            let idx1 = (self.onset_write_idx + i) % len;
             let idx2 = (idx1 + lag) % len;
             sum += self.onset_history[idx1] * self.onset_history[idx2];
         }
@@ -238,5 +238,49 @@ mod tests {
         assert_eq!(config.min_bpm, 60.0);
         assert_eq!(config.max_bpm, 200.0);
         assert_eq!(config.estimate_history_size, 60);
+    }
+
+    fn detector_with_history(history: &[f32], write_idx: usize) -> BpmDetector {
+        let processor = SampleProcessor::new(crate::fetcher::DummyFetcher::new(1));
+        let mut detector = BpmDetector::new(&processor, BpmDetectorConfig::default());
+        detector.onset_history = history.to_vec().into_boxed_slice();
+        detector.onset_write_idx = write_idx;
+        detector
+    }
+
+    #[test]
+    fn autocorrelation_uses_chronological_pairs() {
+        let detector = detector_with_history(&[1.0, 2.0, 3.0, 4.0], 0);
+        assert!((detector.autocorrelation(1) - 20.0 / 3.0).abs() < 1e-6);
+        assert_eq!(detector.autocorrelation(2), 5.5);
+        assert_eq!(detector.autocorrelation(3), 4.0);
+    }
+
+    #[test]
+    fn autocorrelation_is_independent_of_ring_position() {
+        let chronological = [1.0, 2.0, 3.0, 4.0, 8.0];
+        for write_idx in 0..chronological.len() {
+            let mut storage = chronological;
+            storage.rotate_right(write_idx);
+            let detector = detector_with_history(&storage, write_idx);
+            for lag in 0..chronological.len() {
+                let count = chronological.len() - lag;
+                let expected: f32 = chronological[..count]
+                    .iter()
+                    .zip(&chronological[lag..])
+                    .map(|(a, b)| a * b)
+                    .sum::<f32>()
+                    / count as f32;
+                assert_eq!(detector.autocorrelation(lag), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn autocorrelation_rejects_lags_outside_history() {
+        let detector = detector_with_history(&[1.0, 2.0, 3.0, 4.0], 2);
+        assert_eq!(detector.autocorrelation(4), 0.0);
+        assert_eq!(detector.autocorrelation(5), 0.0);
+        assert_eq!(detector_with_history(&[], 0).autocorrelation(0), 0.0);
     }
 }
