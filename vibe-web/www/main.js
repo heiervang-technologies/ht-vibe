@@ -2,9 +2,11 @@ import init, { VibeApp } from './pkg/vibe_web.js';
 
 const FALLBACK_SHADERS = [
     'abyssal_choir',
+    'astral_crown',
     'aurora',
     'cathedral_of_noise',
     'cluster',
+    'console_drift',
     'cymatics',
     'deep_sea',
     'default',
