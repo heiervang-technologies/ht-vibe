@@ -55,7 +55,7 @@ fn parse_hex<S: AsRef<str>>(hex: S) -> Result<vibe_renderer::components::Rgb, Co
 
     let mut rgb = vibe_renderer::components::Rgb::default();
 
-    for (idx, channel) in hex.as_bytes().chunks_exact(2).enumerate() {
+    for (idx, channel) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let value = u8::from_str_radix(str::from_utf8(channel).unwrap(), 16).map_err(|err| {
             ColorFormatError::InvalidChannelFormat {
                 color: hex.into(),

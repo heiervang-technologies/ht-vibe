@@ -40,3 +40,18 @@ Here's a rough overview: More detailed instructions can be seen in the their res
 - `vibe`: Is the desktop application which makes use of the other crates.
 
 For non-fork-specific changes, please follow the upstream contribution guidelines at [TornaxO7/vibe](https://github.com/TornaxO7/vibe).
+
+## Shader and web checks
+
+Edit shared shaders in `shaders/`, then run `python3 utils/sync-web-shaders.py`.
+Commit the generated browser copies and `vibe-web/www/shader-catalog.js` with
+source changes. The web-only default shader lives in `vibe-web/www/default.wgsl`.
+`vibe-web/build.sh` synchronizes these assets before building; CI checks for drift.
+
+Run `cargo build --locked -p vibe-web --target wasm32-unknown-unknown` to check
+the browser crate separately from the default native workspace members.
+
+Renderer image tests require a software Vulkan adapter supporting the requested
+features. Missing adapters fail the affected tests rather than reporting success.
+`VIBE_TEST_ALLOW_HARDWARE_RENDERER=1` explicitly permits hardware comparisons,
+whose output can differ from the software reference images.

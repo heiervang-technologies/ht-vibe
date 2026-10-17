@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: '0 0 * * 0' # runs weekly on Sunday at 00:00
 
+permissions:
+  contents: write
+
 jobs:
   lockfile:
     runs-on: ubuntu-latest
@@ -11,14 +14,19 @@ jobs:
       - uses: TornaxO7/rust-template@v2-ci-actions
       - name: Update flake.lock
         id: update-flake-lock
-        run: nix flake update
+        run: |
+          nix flake update
+          if git diff --quiet -- flake.lock; then
+            echo "modified=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "modified=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Commit updated flake.lock
-        if: |
-          steps.update-flake-lock.outputs.modified == 'true' &&
-          github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.update-flake-lock.outputs.modified == 'true'
         run: |
           git config --global user.name 'Github Actions'
           git config --global user.email '<>'
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-          git commit -am "Automated formatting"
+          git add flake.lock
+          git commit -m "chore: update flake.lock"
           git push

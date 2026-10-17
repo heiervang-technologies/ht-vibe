@@ -2,6 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+python3 ../utils/sync-web-shaders.py
+
 echo "Building vibe-web with wasm-pack..."
 # Emit pkg/ into www/ so the relative `./pkg/vibe_web.js` import in index.html
 # resolves and the page can be served from www/ directly.
