@@ -357,12 +357,12 @@ impl FragmentCanvas {
                 let shader_source = match desc.fragment_code.language {
                     super::ShaderLanguage::Wgsl => {
                         const PREAMBLE: &str = include_str!("./fragment_preamble.wgsl");
-                        let full_code = format!("{}\n{}", PREAMBLE, &source);
+                        let full_code = format!("{}\n{}", PREAMBLE, source);
                         wgpu::ShaderSource::Wgsl(Cow::Owned(full_code))
                     }
                     super::ShaderLanguage::Glsl => {
                         const PREAMBLE: &str = include_str!("./fragment_preamble.glsl");
-                        let full_code = format!("{}\n{}", PREAMBLE, &source);
+                        let full_code = format!("{}\n{}", PREAMBLE, source);
                         wgpu::ShaderSource::Glsl {
                             shader: Cow::Owned(full_code),
                             stage: wgpu::naga::ShaderStage::Fragment,
@@ -691,7 +691,7 @@ impl Component for FragmentCanvas {
                 // Hit! Decode entity_id and write to species file.
                 let species = (red - 1) as i32;
                 if let Ok(mut f) = std::fs::File::create("/tmp/vibe-click-species") {
-                    let _ = write!(f, "species={}\n", species);
+                    let _ = writeln!(f, "species={}", species);
                 }
                 self.readback_frames_remaining = 0;
             } else {

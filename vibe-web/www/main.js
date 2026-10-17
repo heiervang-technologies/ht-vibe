@@ -1,44 +1,7 @@
 import init, { VibeApp } from './pkg/vibe_web.js';
 
-const FALLBACK_SHADERS = [
-    'abyssal_choir',
-    'aurora',
-    'cathedral_of_noise',
-    'cluster',
-    'cymatics',
-    'deep_sea',
-    'default',
-    'driving_arctic',
-    'driving_city',
-    'driving_game',
-    'driving_sunset',
-    'dream_engine',
-    'event_horizon',
-    'ferrofluid_oracle',
-    'evil_mandelbulb',
-    'grass',
-    'infinite_reliquary',
-    'kintsugi_planet',
-    'liquid',
-    'mandelbrot_light',
-    'monolith',
-    'nebula',
-    'neural_bloom',
-    'osint_hud',
-    'paper_moon',
-    'plasma',
-    'pokemon_grass',
-    'pokemon_grass_3d',
-    'prismatic_loom',
-    'singularity',
-    'solar_system',
-    'solar_system_vivid',
-    'starfield',
-    'stormveil',
-    'tesseract',
-    'vortex',
-    'waveform',
-];
+import { SHADERS as FALLBACK_SHADERS } from './shader-catalog.js';
+
 let SHADERS = FALLBACK_SHADERS;
 
 function showError(msg) {

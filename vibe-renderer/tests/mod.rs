@@ -82,11 +82,10 @@ impl<'a> Tester<'a> {
         let has_software_renderer = software_renderer_available();
         if !has_software_renderer && std::env::var_os("VIBE_TEST_ALLOW_HARDWARE_RENDERER").is_none()
         {
-            eprintln!(
-                "Skipping visual renderer test: no software Vulkan adapter is available. \
+            panic!(
+                "Visual renderer tests require a compatible software Vulkan adapter. \
                  Set VIBE_TEST_ALLOW_HARDWARE_RENDERER=1 to compare against hardware output."
             );
-            std::process::exit(0);
         }
 
         let renderer = Renderer::new(&RendererDescriptor {

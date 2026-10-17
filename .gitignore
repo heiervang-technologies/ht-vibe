@@ -18,3 +18,6 @@ result
 
 flamegraph.svg
 perf.data*
+
+# Python utility bytecode
+__pycache__/
