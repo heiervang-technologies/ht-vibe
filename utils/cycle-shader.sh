@@ -62,7 +62,19 @@ texture_for_shader() {
 }
 
 # Get current shader (from fragment_code section, not texture)
-CURRENT_PATH=$(grep -A2 'fragment_code' "$CONFIG_FILE" | sed -n 's/^[[:space:]]*path = "\([^"]*\)".*/\1/p')
+# The path may sit anywhere in its table and use either TOML string form
+# ("basic" or 'literal'); vibe accepts both, so hand-edited configs use both.
+CURRENT_PATH=$(awk '
+    /^[[:space:]]*\[/ { in_code = ($0 ~ /fragment_code\]/); next }
+    in_code && match($0, /^[[:space:]]*path[[:space:]]*=[[:space:]]*/) {
+        value = substr($0, RLENGTH + 1)
+        quote = substr(value, 1, 1)
+        if (quote != "\"" && quote != "\047") next
+        value = substr(value, 2)
+        end = index(value, quote)
+        if (end) { print substr(value, 1, end - 1); exit }
+    }
+' "$CONFIG_FILE")
 CURRENT=$(basename -- "$CURRENT_PATH")
 
 # Find current index
