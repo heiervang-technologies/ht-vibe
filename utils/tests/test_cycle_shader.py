@@ -138,6 +138,31 @@ class ShaderCycleTests(unittest.TestCase):
         self.assertIn("* alpha space (current)", self.run_cycle("list"))
         self.assertIn("beta", self.run_cycle("next"))
 
+    def test_literal_string_current_path_is_identified(self):
+        directory = self.collection(self.config_dir / "shaders")
+        self.config.write_text(
+            "[components.FragmentCanvas.fragment_code]\n"
+            'language = "Wgsl"\n'
+            f"path = '{directory}/beta.wgsl'\n"
+        )
+        self.assertIn("* beta (current)", self.run_cycle("list"))
+        self.assertIn("gamma", self.run_cycle("next"))
+
+    def test_current_path_is_found_anywhere_in_its_table(self):
+        directory = self.collection(self.config_dir / "shaders")
+        self.config.write_text(
+            "[components.FragmentCanvas.texture]\n"
+            f'path = "{directory}/alpha.png"\n'
+            "\n"
+            "[components.FragmentCanvas.fragment_code]\n"
+            "# hand-edited\n"
+            "\n"
+            'language = "Wgsl"\n'
+            f'path="{directory}/beta.wgsl"  # current\n'
+        )
+        self.assertIn("* beta (current)", self.run_cycle("list"))
+        self.assertIn("alpha", self.run_cycle("prev"))
+
     def test_texture_mapping_and_removal(self):
         directory = self.collection(self.config_dir / "shaders", ("plain", "pokemon_grass"))
         self.run_cycle("pokemon_grass")
