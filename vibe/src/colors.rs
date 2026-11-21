@@ -66,7 +66,7 @@ impl ColorManager {
         let (config, mtime) = Self::load_from_path(&path);
 
         Self {
-            config,
+            config: config.unwrap_or_default(),
             path,
             last_mtime: mtime,
         }
@@ -76,13 +76,17 @@ impl ColorManager {
         crate::get_xdg().place_config_file("colors.toml").unwrap()
     }
 
-    fn load_from_path(path: &PathBuf) -> (ColorConfig, Option<SystemTime>) {
+    /// `None` for the config means the file exists but can't be used right now
+    /// (unreadable, half-written by another process, or invalid). A missing file
+    /// means the default palette.
+    fn load_from_path(path: &PathBuf) -> (Option<ColorConfig>, Option<SystemTime>) {
         let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
 
-        let config = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|content| toml::from_str(&content).ok())
-            .unwrap_or_default();
+        let config = match std::fs::read_to_string(path) {
+            Ok(content) => toml::from_str(&content).ok(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Some(ColorConfig::default()),
+            Err(_) => None,
+        };
 
         (config, mtime)
     }
@@ -96,9 +100,17 @@ impl ColorManager {
 
         if current_mtime != self.last_mtime {
             let (config, mtime) = Self::load_from_path(&self.path);
-            self.config = config;
             self.last_mtime = mtime;
-            true
+            // Another writer truncates the file before filling it, so a reload can
+            // catch it empty. Keep the current palette rather than flash the default;
+            // the completed write changes the mtime again and is picked up then.
+            match config {
+                Some(config) => {
+                    self.config = config;
+                    true
+                }
+                None => false,
+            }
         } else {
             false
         }
@@ -143,5 +155,63 @@ impl ColorManager {
 
         self.set_colors(colors)?;
         Ok(colors)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manager(tag: &str) -> ColorManager {
+        let dir =
+            std::env::temp_dir().join(format!("vibe-colors-test-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        ColorManager {
+            config: ColorConfig::default(),
+            path: dir.join("colors.toml"),
+            last_mtime: None,
+        }
+    }
+
+    fn cleanup(manager: &ColorManager) {
+        let _ = std::fs::remove_dir_all(manager.path.parent().unwrap());
+    }
+
+    const PALETTE: [[f32; 3]; 4] = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9], [1.0; 3]];
+
+    #[test]
+    fn saved_palette_is_reloaded() {
+        let mut manager = manager("reload");
+        manager.set_colors(PALETTE).unwrap();
+        manager.config = ColorConfig::default();
+        manager.last_mtime = None;
+        assert!(manager.check_and_reload());
+        assert_eq!(manager.colors(), PALETTE);
+        cleanup(&manager);
+    }
+
+    #[test]
+    fn half_written_or_invalid_file_keeps_the_current_palette() {
+        let mut manager = manager("partial");
+        manager.set_colors(PALETTE).unwrap();
+
+        for content in ["", "color1 = [0.1, 0.2"] {
+            std::fs::write(&manager.path, content).unwrap();
+            manager.last_mtime = None;
+            assert!(!manager.check_and_reload());
+            assert_eq!(manager.colors(), PALETTE);
+        }
+        cleanup(&manager);
+    }
+
+    #[test]
+    fn removed_file_falls_back_to_the_default_palette() {
+        let mut manager = manager("removed");
+        manager.set_colors(PALETTE).unwrap();
+        std::fs::remove_file(&manager.path).unwrap();
+        assert!(manager.check_and_reload());
+        assert_eq!(manager.colors(), DEFAULT_COLORS);
+        cleanup(&manager);
     }
 }
