@@ -26,6 +26,7 @@ const SURF_DIST: f32 = 0.002;
 const GRASS_H: f32 = 0.35;
 const CELL: f32 = 0.08;
 const BRIGHTNESS: f32 = 1.3;
+const EXPOSURE: f32 = 1.06;
 
 // Sprite atlas layout (HGSS overworld: 384x1024, 12 cols x 32 rows)
 const FRAME_W: f32 = 32.0;
@@ -35,11 +36,41 @@ const COLS_PER_DIR: u32 = 3u;         // 3 columns per direction
 const NUM_DIRS: u32 = 4u;             // down, left, right, up
 const TOTAL_POKEMON: i32 = 26;        // 26 species in atlas
 
+// ──── Shiny system ────
+// Probability that an individual entity is shiny (rolled deterministically
+// from its entity index AND its current "lifecycle slot" — see pick_ground_pokemon
+// for the rotation period). In the real games this is ~1/4096; we use 1/128
+// here so a shiny visibly shows up every few minutes.
+const SHINY_RATE: f32 = 0.0078125;            // 1 / 128
+
+// Combined rate for the rare flyer tier (mythical + legendary together).
+// Pool of 7: Mew, Celebi, Jirachi, Darkrai, Shaymin (mythical) +
+// Latias, Latios (legendary Eon duo).
+const RARE_RATE: f32 = 0.00390625;             // 1 / 256
+
+// Per-entity lifecycle period — how often a slot re-rolls which species
+// occupies it. Keeps the same 8 slots from looping the same sprites forever.
+const GROUND_CYCLE_MIN: f32 = 35.0;
+const GROUND_CYCLE_VAR: f32 = 30.0;
+
 // Pokemon entity system
 const NUM_POKEMON: i32 = 8;
 const WALK_ANIM_SPEED: f32 = 4.0; // frames per second
 const MOVE_SPEED: f32 = 0.08;     // world units per second
 const SPRITE_SCALE: f32 = 0.16;   // world-space sprite height
+
+fn balanced_exposure(col: vec3<f32>) -> vec3<f32> {
+    var c = max(col * EXPOSURE, vec3<f32>(0.0));
+    let luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let shadow_lift = (1.0 - smoothstep(0.08, 0.48, luma)) * 0.045;
+    c += vec3<f32>(shadow_lift);
+    c = c / (vec3<f32>(1.0) + c * 0.28);
+
+    let softened_luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+    c = mix(vec3<f32>(softened_luma), c, 0.92);
+    c = (c - vec3<f32>(0.5)) * 0.92 + vec3<f32>(0.5);
+    return pow(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(0.95));
+}
 
 // State durations (base, randomized per entity)
 const WALK_DUR_MIN: f32 = 3.0;
@@ -62,9 +93,14 @@ const DIR_RIGHT: i32 = 2;  // → cols 6-8
 const DIR_UP: i32 = 3;     // → cols 9-11
 
 // ──── Flying Pokemon constants ────
-const FIRST_FLYER_ROW: i32 = 26;     // atlas rows 26-32 are flying Pokemon
-const NUM_FLYER_SPECIES: i32 = 7;    // 7 flying species
+const FIRST_FLYER_ROW: i32 = 26;     // atlas rows 26-32 are common flyers
+const NUM_FLYER_SPECIES: i32 = 7;    // 7 common flying species (rows 26-32)
 const NUM_FLYERS: i32 = 5;           // active flyers on screen
+
+// Mythical pokemon (rows 33-37, post-extension)
+//   33 Mew, 34 Celebi, 35 Jirachi, 36 Darkrai, 37 Shaymin
+const FIRST_MYTHICAL_ROW: i32 = 33;
+const NUM_MYTHICAL_SPECIES: i32 = 5;
 
 // Speed classes (screen widths per second)
 const FLYER_SPEED_FAST: f32 = 0.4;   // Latios, Latias (rows 31-32)
@@ -113,92 +149,109 @@ fn noise(p: vec2<f32>) -> f32 {
 // Atlas rows 26-32 flying:
 //   26=Pidgeot, 27=Crobat, 28=Togetic, 29=Murkrow, 30=Swellow, 31=Latias, 32=Latios
 
+// Each entity-slot has a "tenancy" period after which a new species takes
+// over the slot. Returns the integer tenancy index for this entity at iTime.
+fn ground_tenancy(idx: i32) -> f32 {
+    let period = GROUND_CYCLE_MIN + hash11(f32(idx) * 7.71) * GROUND_CYCLE_VAR;
+    let phase  = hash11(f32(idx) * 13.13) * period;
+    return floor((iTime + phase) / period);
+}
+
 fn pick_ground_pokemon(idx: i32, hour: f32) -> i32 {
-    let seed = hash11(f32(idx) * 53.7 + 19.3);
-    let seed2 = hash11(f32(idx) * 97.3 + 41.1);
+    // Seed includes the tenancy index, so the same slot re-rolls species
+    // each cycle (35-65s typical). This keeps the meadow visually fresh.
+    let tenancy = ground_tenancy(idx);
+    let seed  = hash11(f32(idx) * 53.7 + tenancy * 29.1 + 19.3);
+    let seed2 = hash11(f32(idx) * 97.3 + tenancy * 41.9 + 41.1);
 
-    // Early morning (5-8): early risers - Hoppip, Oddish, Bellsprout, Skiploom, Chikorita, Lotad
-    // Daytime (8-17): common mix of all
-    // Evening (17-20): bigger evolutions - Venusaur, Sceptile, Torterra, Meganium, Victreebel, Vileplume
-    // Night (20-5): nocturnal - Oddish, Gloom, Seedot, Cacnea, Roselia, Leafeon
-
-    let early_pool = array<i32, 6>(12, 3, 6, 13, 9, 18);   // Hoppip, Oddish, Bellsprout, Skiploom, Chikorita, Lotad
-    let day_pool = array<i32, 10>(0, 1, 9, 10, 12, 15, 16, 18, 20, 22); // Bulbasaur, Ivysaur, Chikorita, Bayleef, Hoppip, Treecko, Grovyle, Lotad, Roselia, Turtwig
-    let eve_pool = array<i32, 6>(2, 5, 8, 11, 17, 24);     // Venusaur, Vileplume, Victreebel, Meganium, Sceptile, Torterra
-    let night_pool = array<i32, 8>(3, 4, 19, 21, 20, 25, 7, 23); // Oddish, Gloom, Seedot, Cacnea, Roselia, Leafeon, Weepinbell, Grotle
+    // Wider, less duplicated pools. Including more variety per period.
+    let early_pool = array<i32, 8>(12, 13, 14, 3, 6, 9, 18, 22);
+        // Hoppip, Skiploom, Jumpluff, Oddish, Bellsprout, Chikorita, Lotad, Turtwig
+    let day_pool = array<i32, 12>(0, 1, 9, 10, 12, 13, 15, 16, 18, 20, 22, 23);
+        // Bulba, Ivy, Chiko, Bayleef, Hoppip, Skiploom, Treecko, Grovyle, Lotad,
+        // Roselia, Turtwig, Grotle
+    let eve_pool = array<i32, 8>(2, 5, 8, 11, 14, 17, 20, 24);
+        // Venusaur, Vileplume, Victreebel, Meganium, Jumpluff, Sceptile, Roselia,
+        // Torterra
+    let night_pool = array<i32, 9>(3, 4, 19, 21, 25, 7, 23, 5, 8);
+        // Oddish, Gloom, Seedot, Cacnea, Leafeon, Weepinbell, Grotle, Vileplume,
+        // Victreebel
 
     // Blend between time periods with smooth transitions
     let is_early = smoothstep(4.5, 5.5, hour) * smoothstep(8.5, 7.5, hour);
-    let is_day = smoothstep(7.5, 8.5, hour) * smoothstep(17.5, 16.5, hour);
-    let is_eve = smoothstep(16.5, 17.5, hour) * smoothstep(20.5, 19.5, hour);
-    // Night is the remainder
-
-    // Use seed2 to pick which pool, weighted by time
-    let pool_roll = seed2;
-
-    if pool_roll < is_early * 0.7 + 0.05 && is_early > 0.3 {
-        let pick = i32(floor(seed * 5.99));
-        return early_pool[pick];
-    }
-    if pool_roll < is_day * 0.7 + 0.1 && is_day > 0.3 {
-        let pick = i32(floor(seed * 9.99));
-        return day_pool[pick];
-    }
-    if pool_roll < is_eve * 0.7 + 0.1 && is_eve > 0.3 {
-        let pick = i32(floor(seed * 5.99));
-        return eve_pool[pick];
-    }
-    // Night or transition fallback
+    let is_day   = smoothstep(7.5, 8.5, hour) * smoothstep(17.5, 16.5, hour);
+    let is_eve   = smoothstep(16.5, 17.5, hour) * smoothstep(20.5, 19.5, hour);
     let is_night = 1.0 - max(max(is_early, is_day), is_eve);
-    if is_night > 0.2 {
-        let pick = i32(floor(seed * 7.99));
-        return night_pool[pick];
-    }
 
-    // General fallback: hash across all species
+    // Build weighted period selection. Each period has a primary pool weight
+    // plus a small "cross-pollination" floor so off-period species still
+    // appear occasionally (realistic vivarium variety).
+    let w_early = is_early * 0.85 + 0.04;
+    let w_day   = is_day   * 0.85 + 0.06;
+    let w_eve   = is_eve   * 0.85 + 0.04;
+    let w_night = is_night * 0.85 + 0.04;
+    let w_total = w_early + w_day + w_eve + w_night;
+    let roll    = seed2 * w_total;
+
+    if roll < w_early {
+        return early_pool[i32(floor(seed * 7.99))];
+    }
+    if roll < w_early + w_day {
+        return day_pool[i32(floor(seed * 11.99))];
+    }
+    if roll < w_early + w_day + w_eve {
+        return eve_pool[i32(floor(seed * 7.99))];
+    }
+    if roll < w_early + w_day + w_eve + w_night {
+        return night_pool[i32(floor(seed * 8.99))];
+    }
     return i32(floor(seed * f32(TOTAL_POKEMON)));
 }
 
+// Per-flyer-slot "flight" tenancy. Re-rolls species each flight (90-180s).
+fn flyer_tenancy(idx: i32) -> f32 {
+    let period = 90.0 + hash11(f32(idx) * 11.31) * 90.0;
+    let phase  = hash11(f32(idx) * 7.71) * period;
+    return floor((iTime + phase) / period);
+}
+
+// Per-Pokemon rarity tier (atlas rows).
+//   tier 0 = common (Pidgeot, Crobat, Togetic, Murkrow, Swellow)
+//   tier 1 = mythical hook (no atlas row currently — would be Jirachi, Mew, etc.)
+//   tier 2 = legendary (Latias, Latios)
 fn pick_flyer_species(idx: i32, hour: f32) -> i32 {
-    let seed = hash11(f32(idx) * 173.7 + 57.3);
-    let seed2 = hash11(f32(idx) * 293.1 + 67.9);
+    let tenancy = flyer_tenancy(idx);
+    let seed     = hash11(f32(idx) * 173.7 + tenancy * 31.7 + 57.3);
+    let seed2    = hash11(f32(idx) * 293.1 + tenancy * 47.1 + 67.9);
+    let rare_roll = hash11(f32(idx) * 521.3 + tenancy * 19.7);
 
-    // Atlas: 26=Pidgeot, 27=Crobat, 28=Togetic, 29=Murkrow, 30=Swellow, 31=Latias, 32=Latios
-
-    // Latias/Latios: ~5-10% chance, only during golden hours (dawn 5:30-6:30, dusk 6:30-7:30)
-    // Use a hash that changes every ~10 minutes so they don't constantly appear
-    let ten_min_slot = floor(hour * 6.0); // changes every 10 min
-    let rare_hash = hash11(f32(idx) * 331.7 + ten_min_slot * 17.3);
-    let is_dawn_golden = smoothstep(5.25, 5.75, hour) * smoothstep(6.75, 6.25, hour);
-    let is_dusk_golden = smoothstep(6.25, 6.75, hour) * smoothstep(7.75, 7.25, hour);
-    let golden = max(is_dawn_golden, is_dusk_golden);
-
-    if golden > 0.5 && rare_hash < 0.08 {
-        // Latias or Latios
-        return select(31, 32, seed > 0.5);
+    // Rare tier (1/256): Mew, Celebi, Jirachi, Darkrai, Shaymin (atlas rows
+    // 33-37) plus Latias (31) and Latios (32). One pool, one rate.
+    if rare_roll < RARE_RATE {
+        let pool_size = NUM_MYTHICAL_SPECIES + 2;          // 5 mythicals + 2 Eon
+        let pick = i32(floor(seed * f32(pool_size) * 0.999));
+        if pick == 0 { return 31; }                        // Latias
+        if pick == 1 { return 32; }                        // Latios
+        return FIRST_MYTHICAL_ROW + (pick - 2);            // Mew/Celebi/Jirachi/Darkrai/Shaymin
     }
 
-    // Night/dusk (19-5): Crobat, Murkrow more common
+    // Otherwise, common flyers with time-of-day biases.
     let is_night = smoothstep(19.5, 20.5, hour) + smoothstep(5.5, 4.5, hour);
     let is_dusk = smoothstep(17.0, 18.0, hour) * smoothstep(20.0, 19.0, hour);
+    let is_dawn = smoothstep(5.0, 6.0, hour) * smoothstep(8.0, 7.0, hour);
+    let is_day = smoothstep(7.0, 8.0, hour) * smoothstep(18.0, 17.0, hour);
 
     if (is_night + is_dusk) > 0.5 && seed2 < 0.7 {
-        return select(27, 29, seed > 0.5); // Crobat or Murkrow
+        return select(27, 29, seed > 0.5);          // Crobat or Murkrow
     }
-
-    // Dawn/dusk: Togetic
-    let is_dawn = smoothstep(5.0, 6.0, hour) * smoothstep(8.0, 7.0, hour);
     if (is_dawn + is_dusk) > 0.5 && seed2 < 0.4 {
-        return 28; // Togetic
+        return 28;                                  // Togetic
     }
-
-    // Daytime: Pidgeot, Swellow
-    let is_day = smoothstep(7.0, 8.0, hour) * smoothstep(18.0, 17.0, hour);
     if is_day > 0.5 && seed2 < 0.6 {
-        return select(26, 30, seed > 0.5); // Pidgeot or Swellow
+        return select(26, 30, seed > 0.5);          // Pidgeot or Swellow
     }
 
-    // Fallback: distribute among non-legendary flyers
+    // Fallback: distribute among common flyers (NOT including Lati twins).
     let common_flyers = array<i32, 5>(26, 27, 28, 29, 30);
     let pick = i32(floor(seed * 4.99));
     return common_flyers[pick];
@@ -285,6 +338,177 @@ struct PokemonState {
 // Deterministic hash for entity seed
 fn entity_seed(idx: i32) -> f32 {
     return hash11(f32(idx) * 127.1 + 31.7);
+}
+
+// ──── Shiny system ────
+// Roll a deterministic per-entity shiny check. Different hash salt than
+// entity_seed() so shininess is independent of species/spawn-direction etc.
+// Flying entities use a different namespace (idx + 1000) to avoid colliding
+// with ground entities at the same idx.
+fn is_shiny(idx: i32, is_flyer: bool) -> bool {
+    let salt = select(0.0, 977.3, is_flyer);
+    let roll = hash11(f32(idx) * 197.3 + 11.7 + salt);
+    return roll < SHINY_RATE;
+}
+
+// ──── RGB <-> HSV (used by canonical shiny recolor) ────
+fn rgb2hsv(c: vec3<f32>) -> vec3<f32> {
+    let K = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    let p = mix(vec4<f32>(c.b, c.g, K.w, K.z),
+                vec4<f32>(c.g, c.b, K.x, K.y), step(c.b, c.g));
+    let q = mix(vec4<f32>(p.x, p.y, p.w, c.r),
+                vec4<f32>(c.r, p.y, p.z, p.x), step(p.x, c.r));
+    let d = q.x - min(q.w, q.y);
+    let e = 1.0e-10;
+    return vec3<f32>(abs(q.z + (q.w - q.y) / (6.0 * d + e)),
+                     d / (q.x + e), q.x);
+}
+
+fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
+    let K = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(vec3<f32>(c.x, c.x, c.x) + K.xyz) * 6.0 - vec3<f32>(K.w));
+    return c.z * mix(vec3<f32>(K.x), clamp(p - vec3<f32>(K.x),
+                                            vec3<f32>(0.0), vec3<f32>(1.0)), c.y);
+}
+
+// ──── Canonical shiny palette deltas ────
+// Returns vec3<f32>(hue_shift_normalized, sat_multiplier, value_multiplier).
+// `hue_shift_normalized` is in [-1, 1] where 1.0 = full 360° rotation.
+// Hand-tuned to match each species' actual in-game shiny palette swap
+// (dominant body color is the target). Reference: Bulbapedia shiny sprites.
+//
+// Some species have very subtle shinies — those use small hue shifts and
+// mostly value/saturation tweaks. Species with dramatic palette swaps
+// (Vileplume, Crobat, Swellow, Latios) get larger hue shifts.
+fn shiny_palette_delta(species_row: i32) -> vec3<f32> {
+    switch species_row {
+        // Bulbasaur line: leafy green → darker teal-cyan
+        case 0:  { return vec3<f32>( 0.10, 1.00, 0.85); }   // Bulbasaur
+        case 1:  { return vec3<f32>( 0.10, 1.00, 0.85); }   // Ivysaur
+        case 2:  { return vec3<f32>( 0.10, 1.00, 0.85); }   // Venusaur
+        // Oddish line: blue body → green
+        case 3:  { return vec3<f32>(-0.32, 1.05, 1.05); }   // Oddish
+        case 4:  { return vec3<f32>(-0.32, 1.05, 1.05); }   // Gloom
+        // Vileplume: red flower → bright pink/magenta (canonical), body still green
+        case 5:  { return vec3<f32>( 0.08, 1.10, 1.00); }   // Vileplume
+        // Bellsprout line: yellow → deeper olive-yellow (subtle)
+        case 6:  { return vec3<f32>(-0.05, 1.10, 0.90); }   // Bellsprout
+        case 7:  { return vec3<f32>(-0.05, 1.10, 0.90); }   // Weepinbell
+        case 8:  { return vec3<f32>(-0.05, 1.10, 0.90); }   // Victreebel
+        // Chikorita line: leaf green → bright yellow
+        case 9:  { return vec3<f32>(-0.12, 0.90, 1.15); }   // Chikorita
+        case 10: { return vec3<f32>(-0.12, 0.90, 1.15); }   // Bayleef
+        case 11: { return vec3<f32>(-0.12, 0.90, 1.15); }   // Meganium
+        // Hoppip line: pink leaves → light blue
+        case 12: { return vec3<f32>(-0.28, 0.90, 1.05); }   // Hoppip
+        case 13: { return vec3<f32>(-0.28, 0.90, 1.05); }   // Skiploom
+        case 14: { return vec3<f32>(-0.28, 0.90, 1.05); }   // Jumpluff
+        // Treecko line: lime green → teal/dark green (small hue shift)
+        case 15: { return vec3<f32>( 0.08, 1.10, 0.85); }   // Treecko
+        case 16: { return vec3<f32>( 0.08, 1.10, 0.85); }   // Grovyle
+        case 17: { return vec3<f32>( 0.08, 1.10, 0.85); }   // Sceptile
+        // Seedot: brown → light pink (canonical shiny is pink)
+        case 18: { return vec3<f32>(-0.55, 1.20, 1.15); }   // Seedot
+        // Shroomish: cream → blue (canonical: body becomes cyan-blue)
+        case 19: { return vec3<f32>( 0.55, 1.20, 1.05); }   // Shroomish
+        // Roselia: green body → still green, flowers swap to yellow
+        case 20: { return vec3<f32>( 0.05, 1.05, 1.05); }   // Roselia (subtle)
+        // Cherubi: red → orange-pink (cherry stays red)
+        case 21: { return vec3<f32>( 0.05, 1.00, 1.10); }   // Cherubi
+        // Turtwig line: green → light olive-green (subtle, NOT yellow)
+        case 22: { return vec3<f32>(-0.03, 0.85, 1.10); }   // Turtwig
+        case 23: { return vec3<f32>(-0.03, 0.85, 1.10); }   // Grotle
+        case 24: { return vec3<f32>(-0.03, 0.85, 1.10); }   // Torterra
+        // Carnivine: green → pink
+        case 25: { return vec3<f32>(-0.50, 1.10, 1.05); }   // Carnivine
+        // ─── Flyers (rows 26..32) ───
+        // Pidgeot: red/pink crest → blue crest, brown body slightly desaturated
+        case 26: { return vec3<f32>( 0.45, 1.05, 0.95); }   // Pidgeot
+        // Crobat: dark purple → light teal (one of the most dramatic shinies)
+        case 27: { return vec3<f32>(-0.40, 0.90, 1.15); }   // Crobat
+        // Togetic: white body, red/blue chevrons → mostly the same but slightly bluer
+        case 28: { return vec3<f32>( 0.05, 1.05, 1.00); }   // Togetic (subtle)
+        // Murkrow: black/dark → black with golden tail accents
+        case 29: { return vec3<f32>( 0.10, 1.30, 1.00); }   // Murkrow
+        // Swellow: navy body (~0.65) → forest green (~0.33). Red throat masked out.
+        case 30: { return vec3<f32>(-0.32, 1.05, 1.10); }   // Swellow
+        // Latias: red body (~0.97) → gold/yellow (~0.13). Blue triangle masked out.
+        case 31: { return vec3<f32>( 0.18, 1.10, 1.15); }   // Latias
+        // Latios: blue body (~0.62) → pink (~0.92). Red triangle masked out.
+        case 32: { return vec3<f32>( 0.30, 0.85, 1.05); }   // Latios
+        default: { return vec3<f32>( 0.45, 1.05, 1.00); }
+    }
+}
+
+// ──── Optional per-species source-hue filter ────
+// Some species' canonical shinies only change ONE color region (e.g. Swellow
+// blue body → green, but the red throat stays red). For those species we
+// return a vec2(min, max) hue range in [0, 1]; only pixels whose hue falls
+// inside the range get shifted. A full range (0..1) = shift everything.
+// Range crosses 0 if min > max (wraps around).
+fn shiny_hue_filter(species_row: i32) -> vec2<f32> {
+    switch species_row {
+        // Swellow: only navy body (blue) shifts → green. Red throat stays.
+        case 30: { return vec2<f32>(0.50, 0.78); }
+        // Latias: red body → yellow, but blue triangle stays blue.
+        //   Red wraps around 0: range is 0.88..1.00 + 0.0..0.10.
+        //   We encode wrap as min > max.
+        case 31: { return vec2<f32>(0.88, 0.10); }
+        // Latios: blue body → pink/lavender, red triangle stays red.
+        case 32: { return vec2<f32>(0.50, 0.78); }
+        // Roselia: red flowers → yellow, green body and blue flower stay.
+        case 20: { return vec2<f32>(0.88, 0.08); }   // red wrap
+        // Vileplume: red flower → magenta/pink. Green body keeps its hue.
+        case 5:  { return vec2<f32>(0.88, 0.10); }   // red wrap
+        // Pidgeot: red/pink crest → blue. Tan body stays.
+        case 26: { return vec2<f32>(0.88, 0.08); }   // red/pink wrap
+        // Murkrow: dark body, only the (small) red accents shift slightly.
+        case 29: { return vec2<f32>(0.88, 0.10); }   // red wrap
+        // Cherubi: leaf is red+pink. Shift those, body stays pale pink stays.
+        case 21: { return vec2<f32>(0.88, 0.08); }
+        default: { return vec2<f32>(0.0, 1.0); }     // no filter, shift all
+    }
+}
+
+// True if `hue` is inside [min, max] with wrap-around support (min > max).
+fn hue_in_range(hue: f32, range: vec2<f32>) -> bool {
+    if range.x <= range.y {
+        return hue >= range.x && hue <= range.y;
+    }
+    return hue >= range.x || hue <= range.y;
+}
+
+// Apply a canonical-ish shiny recolor: per-species hue shift + sat/val
+// multiplier in HSV space. Preserves dark outlines, white highlights, and
+// applies the hue shift only to pixels whose hue falls in the species' filter
+// range (when the species has one) -- so multi-region palettes (Swellow's
+// red throat, Latios's red triangle, etc.) keep their non-target regions.
+fn shiny_recolor(rgb: vec3<f32>, species_row: i32) -> vec3<f32> {
+    var hsv = rgb2hsv(rgb);
+    let delta = shiny_palette_delta(species_row);
+    let hue_filter = shiny_hue_filter(species_row);
+    let in_range = hue_in_range(hsv.x, hue_filter);
+    // Skip near-black outlines and near-white highlights
+    let chroma_mask = smoothstep(0.05, 0.12, hsv.y) * smoothstep(0.05, 0.12, hsv.z)
+                    * (1.0 - smoothstep(0.92, 0.98, hsv.z));
+    let apply = chroma_mask * select(0.0, 1.0, in_range);
+    hsv.x = fract(hsv.x + delta.x * apply + 1.0);
+    hsv.y = clamp(hsv.y * mix(1.0, delta.y, apply), 0.0, 1.0);
+    hsv.z = clamp(hsv.z * mix(1.0, delta.z, apply), 0.0, 1.0);
+    return hsv2rgb(hsv);
+}
+
+// 4-pointed sparkle star at center, returning intensity [0, 1].
+fn sparkle_star(p: vec2<f32>, radius: f32) -> f32 {
+    let d = length(p);
+    if d > radius { return 0.0; }
+    // Cross-shaped diffraction spikes
+    let horiz = max(0.0, 1.0 - abs(p.y) / (radius * 0.15))
+              * max(0.0, 1.0 - abs(p.x) / radius);
+    let vert  = max(0.0, 1.0 - abs(p.x) / (radius * 0.15))
+              * max(0.0, 1.0 - abs(p.y) / radius);
+    let core = smoothstep(radius * 0.35, 0.0, d);
+    return clamp(horiz + vert + core * 1.5, 0.0, 1.5);
 }
 
 // Get a direction vector from a direction index (8 directions mapped to 4 sprite dirs)
@@ -454,11 +678,13 @@ struct FlyerState {
 }
 
 fn flyer_speed(species_row: i32) -> f32 {
+    // Mythicals (33-37): soar gracefully -- slow / floating
+    if species_row >= FIRST_MYTHICAL_ROW { return FLYER_SPEED_SLOW * 0.8; }
     let local = species_row - FIRST_FLYER_ROW;
-    // Row 26=Pidgeot, 27=Crobat, 28=Togetic, 29=Murkrow, 30=Swellow, 31=Latias, 32=Latios
-    if local >= 5 { return FLYER_SPEED_FAST; }               // rows 31-32: Latias, Latios
-    if local == 2 || local == 3 { return FLYER_SPEED_SLOW; } // rows 28-29: Togetic, Murkrow
-    return FLYER_SPEED_MED;                                    // rows 26-27,30: Pidgeot, Crobat, Swellow
+    // 26=Pidgeot, 27=Crobat, 28=Togetic, 29=Murkrow, 30=Swellow, 31=Latias, 32=Latios
+    if local >= 5 { return FLYER_SPEED_FAST; }               // Lati twins
+    if local == 2 || local == 3 { return FLYER_SPEED_SLOW; } // Togetic, Murkrow
+    return FLYER_SPEED_MED;                                   // Pidgeot, Crobat, Swellow
 }
 
 fn get_flyer_state(idx: i32, time: f32, bass: f32, beat: f32, hour: f32) -> FlyerState {
@@ -709,15 +935,62 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             if sprite_col.a > 0.5 {
                 // Atmospheric tint: higher altitude → more blue/sky tint
                 let alt_norm = 1.0 - (fl.altitude - FLYER_Y_MIN) / (FLYER_Y_MAX - FLYER_Y_MIN); // 1=high, 0=low
-                let tinted = mix(sprite_col.rgb, sky_base, alt_norm * 0.3);
+                var sprite_rgb = sprite_col.rgb;
+
+                // Shiny recolor for flyers
+                let flyer_shiny = is_shiny(fi, true);
+                if flyer_shiny {
+                    sprite_rgb = shiny_recolor(sprite_rgb, fl.species_row);
+                }
+
+                let tinted = mix(sprite_rgb, sky_base, alt_norm * 0.3);
 
                 // Apply scene lighting (time-of-day aware)
                 let light_tint = sun_col * 0.15 + moon_col * 0.5 + vec3<f32>(0.85) * max(sun_above, 0.15);
-                let lit_sprite = tinted * light_tint;
+                var lit_sprite = tinted * light_tint;
+
+                // Flyer sparkles handled outside this branch (screen-space
+                // additive pass below, so they can extend outside the sprite).
 
                 // Blend with edge fade alpha for smooth entry/exit
                 color = mix(color, lit_sprite, fl.alpha);
             }
+        }
+    }
+
+    // ──── Shiny sparkle bursts for flyers (additive, can extend outside) ────
+    for (var fi2 = 0; fi2 < NUM_FLYERS; fi2 = fi2 + 1) {
+        if !is_shiny(fi2, true) { continue; }
+        let fl_state = get_flyer_state(fi2, iTime, bass, beat, hour);
+        if fl_state.alpha < 0.01 { continue; }
+
+        let fl_h = fl_state.scale;
+        let fl_w = fl_h;
+        let fl_cx = fl_state.x_pos;
+        let fl_top = fl_state.altitude - fl_h * 0.5;
+
+        for (var fsj = 0; fsj < 3; fsj = fsj + 1) {
+            let s_seed = f32(fi2) * 47.3 + f32(fsj) * 11.7 + 200.0;
+            let interval = 2.0 + hash11(s_seed) * 2.5;          // 2.0..4.5 s gaps
+            let phase_off = hash11(s_seed + 7.13) * interval;
+            let burst_idx = floor((iTime + phase_off) / interval);
+            let burst_t0 = burst_idx * interval - phase_off;
+            let dt = iTime - burst_t0;
+            let dur = 0.30 + hash11(s_seed + 11.7) * 0.15;      // 0.30..0.45 s
+            if dt < 0.0 || dt > dur { continue; }
+            let t01 = dt / dur;
+            // Smoother envelope: rise to ~30% in, slow fall.
+            // sin(π*t) gives a clean half-sine; weight peak toward early bloom.
+            let env = sin(t01 * 3.14159) * smoothstep(0.0, 0.30, t01)
+                                          * smoothstep(1.0, 0.40, t01) * 1.3;
+
+            let off_x = (hash11(burst_idx * 5.13 + s_seed) - 0.5) * fl_w * 0.7;
+            let off_y = fl_h * (0.10 + hash11(burst_idx * 11.3 + s_seed) * 0.40);
+            let star_cx = fl_cx + off_x;
+            let star_cy = fl_top + off_y;  // fl_top is top of flyer quad, go DOWN into body
+            let star_r = 0.008 + hash11(s_seed + 3.1) * 0.006;  // small, close to sprite
+            let star = sparkle_star(uv - vec2<f32>(star_cx, star_cy), star_r) * env;
+            color += vec3<f32>(1.0, 0.90, 0.25) * star * 2.4 * fl_state.alpha;
         }
     }
 
@@ -923,9 +1196,20 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
                     let fog_col = vec3<f32>(0.32, 0.42, 0.5);
                     var sprite_lit = sprite_col.rgb;
 
+                    // Shiny recolor (applied BEFORE lighting so the alt palette
+                    // still picks up scene tint)
+                    let shiny = is_shiny(i, false);
+                    if shiny {
+                        sprite_lit = shiny_recolor(sprite_lit, pk_idx[i]);
+                    }
+
                     // Tint sprite with time-of-day scene lighting
                     let light_tint = sun_col * 0.18 + moon_col * 0.4 + vec3<f32>(0.82) * max(sun_above, 0.15);
                     sprite_lit *= light_tint;
+
+                    // Sparkles handled outside the per-sprite branch -- see
+                    // below, after the sprite finalization, so they can extend
+                    // outside the sprite quad.
 
                     let sp_fog_day = vec3<f32>(0.32, 0.42, 0.5);
                     let sp_fog_night = vec3<f32>(0.05, 0.06, 0.12);
@@ -937,9 +1221,55 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         }
     }
 
+    // ──── Shiny sparkle bursts (additive, screen-space, can extend
+    // outside sprite quads). 3 burst slots per shiny entity; each fires
+    // short sharp flashes (~120ms) at random intervals (~0.6-1.8s).
+    for (var sk_i = 0; sk_i < NUM_POKEMON; sk_i = sk_i + 1) {
+        if !is_shiny(sk_i, false) { continue; }
+        let sk_depth = pk_depth[sk_i];
+        if sk_depth < 0.1 { continue; }
+
+        let sk_world = vec3<f32>(pk_pos[sk_i].x, 0.0, pk_pos[sk_i].y);
+        let sk_foot_screen = world_to_screen(sk_world, ro, fwd, right_v, up_v, focal);
+        let sk_h = (SPRITE_SCALE * focal) / sk_depth;
+        let sk_w = sk_h * (FRAME_W / FRAME_H);
+        let sk_foot_uv_y = -sk_foot_screen.y;
+        let sk_bounce_uv = -(pk_bounce[sk_i] * focal) / sk_depth;
+        let sk_feet = sk_foot_uv_y + sk_bounce_uv;
+        let sk_head = sk_feet - sk_h;
+        let sk_cx = sk_foot_screen.x;
+
+        for (var sj = 0; sj < 3; sj = sj + 1) {
+            let s_seed = f32(sk_i) * 31.7 + f32(sj) * 9.13;
+            let interval = 2.0 + hash11(s_seed) * 2.5;          // 2.0..4.5 s gaps          // 0.6..1.8 s
+            let phase_off = hash11(s_seed + 7.13) * interval;
+            let burst_idx = floor((iTime + phase_off) / interval);
+            let burst_t0 = burst_idx * interval - phase_off;
+            let dt = iTime - burst_t0;
+            let dur = 0.30 + hash11(s_seed + 11.7) * 0.15;      // 0.30..0.45 s      // 0.10..0.16 s
+            if dt < 0.0 || dt > dur { continue; }
+            // Sharp envelope: fast rise, fast fall, peak at 25% in
+            let t01 = dt / dur;
+            // Smoother envelope: rise to ~30% in, slow fall.
+            // sin(π*t) gives a clean half-sine; weight peak toward early bloom.
+            let env = sin(t01 * 3.14159) * smoothstep(0.0, 0.30, t01)
+                                          * smoothstep(1.0, 0.40, t01) * 1.3;
+
+            // Position: ON the upper part of the sprite (head/shoulder area)
+            let off_x = (hash11(burst_idx * 5.13 + s_seed) - 0.5) * sk_w * 0.7;
+            let off_y = sk_h * (0.10 + hash11(burst_idx * 11.3 + s_seed) * 0.35);
+            let star_cx = sk_cx + off_x;
+            let star_cy = sk_head + off_y;   // sk_head is the top, going DOWN into sprite
+            let star_r = 0.008 + hash11(s_seed + 3.1) * 0.006;  // small, close to sprite  // small, sharp
+            let star = sparkle_star(uv - vec2<f32>(star_cx, star_cy), star_r) * env;
+            color += vec3<f32>(1.0, 0.90, 0.25) * star * 2.8;   // canonical shiny gold
+        }
+    }
+
     // ──── Post-processing ────
     color *= BRIGHTNESS;
     color *= 1.0 - dot(uv * 0.6, uv * 0.6) * 0.18; // vignette
+    color = balanced_exposure(color);
 
     // ──── GPU→CPU species encoding (pixel 0,0 readback) ────
     // When a click hits a Pokemon, encode the atlas row in the red channel of pixel (0,0).
