@@ -64,3 +64,37 @@ var<uniform> iMouseClick: vec4f;
 // Contains the local wall-clock time as hours since midnight (0.0-24.0).
 @group(0) @binding(9)
 var<uniform> iLocalTime: f32;
+
+// WASD keyboard state. Each component is 1.0 if held, 0.0 otherwise.
+//   - x: W
+//   - y: A
+//   - z: S
+//   - w: D
+@group(0) @binding(10)
+var<uniform> iKeys: vec4f;
+
+// Game state for shader-driven games (e.g. racing).
+//   - x: player_progress in [0, 1]
+//   - y: race state: 0 = intro/countdown, 1 = racing, 2 = finished
+//   - z: race_time in seconds since the current state was entered
+//   - w: player rank in 1..4 when finished, 0 otherwise
+@group(0) @binding(11)
+var<uniform> iGameState: vec4f;
+
+// AI opponent state.
+//   - xyz: AI opponent progress in [0, 1] (3 AIs)
+//   - w: countdown seconds remaining (only valid while iGameState.y == 0)
+@group(0) @binding(12)
+var<uniform> iAIState: vec4f;
+
+// Active projectile progress along the track ([0, 1]; negative = inactive).
+//   - x: player projectile (going forward)
+//   - y, z, w: AI 0/1/2 projectiles (going backward)
+@group(0) @binding(13)
+var<uniform> iProjectiles: vec4f;
+
+// Slow timers in seconds remaining (0.0 = not slowed).
+//   - x: player slow remaining
+//   - y, z, w: AI 0/1/2 slow remaining
+@group(0) @binding(14)
+var<uniform> iSlow: vec4f;
