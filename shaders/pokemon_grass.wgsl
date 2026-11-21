@@ -1274,7 +1274,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     // ──── GPU→CPU species encoding (pixel 0,0 readback) ────
     // When a click hits a Pokemon, encode the atlas row in the red channel of pixel (0,0).
     // The CPU-side readback (FragmentCanvas::post_render) copies this pixel to a staging
-    // buffer, decodes red, and writes the species to /tmp/vibe-click-species.
+    // buffer and decodes red; the app exports it as `id=N` in $XDG_RUNTIME_DIR/vibe/pick.
     //
     // Encoding: red = (atlas_row + 1) / 255.0 (so red=0 means "no hit")
     // Timing: only encode for 0.1s after the click (readback tries for 6 frames)

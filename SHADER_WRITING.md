@@ -5,7 +5,7 @@ description: Use this skill when writing, debugging, or optimizing WGSL fragment
 
 # Writing WGSL Shaders for Vibe
 
-Vibe is a Wayland audio visualizer that renders custom WGSL fragment shaders with real-time audio data. Every shader receives screen coordinates, frequency data, elapsed time, mouse position, BPM, and a 4-color palette. This guide covers everything needed to write shaders that look great, respond to music, and run efficiently.
+Vibe is a Wayland audio visualizer that renders custom WGSL fragment shaders with real-time audio data. Every shader receives screen coordinates, frequency data, elapsed time, mouse position and clicks, BPM, local time, and a 4-color palette; in window mode also keyboard and race-game state. This guide covers everything needed to write shaders that look great, respond to music, and run efficiently.
 
 ## The Shader Interface
 
@@ -23,6 +23,18 @@ Every shader gets a **preamble** injected before your code. You do NOT declare t
 | `@group(0) @binding(5)` | `ColorPalette` (uniform) | `iColors` | 4-color palette from `colors.toml` |
 | `@group(0) @binding(6)` | `sampler` | `iSampler` | Texture sampler (for optional image) |
 | `@group(0) @binding(7)` | `texture_2d<f32>` | `iTexture` | Optional texture image |
+| `@group(0) @binding(8)` | `vec4f` (uniform) | `iMouseClick` | Last click: `xy` normalized position (0-1), or `(-1,-1)` when cleared; `z` click time in `iTime` seconds; `w` reserved |
+| `@group(0) @binding(9)` | `f32` (uniform) | `iLocalTime` | Local wall-clock time as hours since midnight (0.0-24.0) |
+| `@group(0) @binding(10)` | `vec4f` (uniform) | `iKeys` | Movement keys held, `1.0` or `0.0` each: `x` forward (W), `y` left (A), `z` backward (S), `w` right (D) |
+| `@group(0) @binding(11)` | `vec4f` (uniform) | `iGameState` | Race game: `x` player progress (0-1), `y` state (0 intro/countdown, 1 racing, 2 finished), `z` seconds in that state, `w` player rank 1-4 when finished |
+| `@group(0) @binding(12)` | `vec4f` (uniform) | `iAIState` | `xyz` progress of the three AI opponents (0-1), `w` countdown seconds left (only while state is 0) |
+| `@group(0) @binding(13)` | `vec4f` (uniform) | `iProjectiles` | Projectile progress along the track, negative when inactive: `x` player's, `yzw` the AIs' |
+| `@group(0) @binding(14)` | `vec4f` (uniform) | `iSlow` | Seconds of slow-down remaining: `x` player, `yzw` the AIs |
+
+Bindings 10-14 are only driven in **window mode**, where the app owns the keyboard. On layer-shell
+outputs (wallpaper/overlay) they stay at zero, so a shader that uses them should still look right
+with all-zero input. The keys behind `iKeys` are rebindable in the settings overlay (`F1`); the
+component order is always forward, left, backward, right.
 
 ### ColorPalette Struct
 
@@ -46,6 +58,31 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(color, 1.0);
 }
 ```
+
+### Clicks and Picking
+
+`iMouseClick` lets a shader react to the last left click; `(-1,-1)` means there is none (on layer-shell outputs a right click clears it).
+Compare `iTime - iMouseClick.z` to get the click's age:
+
+```wgsl
+let click_age = iTime - iMouseClick.z;
+let clicked = iMouseClick.x >= 0.0 && click_age < 0.5;
+let click_uv = (iMouseClick.xy * iResolution.xy - iResolution.xy * 0.5) / min(iResolution.x, iResolution.y);
+```
+
+A shader can also report **which entity was clicked** back to the CPU. For up to six frames after a
+click, vibe reads back the pixel at `(0,0)`: red `0` means no hit, anything else is `entity_id + 1`.
+Write it only for that one pixel and only briefly after the click:
+
+```wgsl
+if pos.x < 1.0 && pos.y < 1.0 && hit_id >= 0 && click_age < 0.1 {
+    return vec4<f32>(f32(hit_id + 1) / 255.0, 0.0, 0.0, 1.0);
+}
+```
+
+That gives ids 0-254. The app exposes the result to external tools as `id=N` in
+`$XDG_RUNTIME_DIR/vibe/pick` (next to `click` and `bpm`; see the `[export]` config section).
+`pokemon_grass.wgsl` and `utils/pokemon-click-cry.py` are the worked example.
 
 ## Screen Coordinates
 
