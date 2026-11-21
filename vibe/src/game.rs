@@ -22,6 +22,15 @@ fn prng(seed: f32) -> f32 {
     s - s.floor()
 }
 
+/// Whether a shader takes part in the race: it reads the race state uniform.
+///
+/// Only such shaders get the race's click handling (arming, restart). Every other
+/// shader receives all clicks. A plain text search is enough here; a shader that
+/// merely mentions the name in a comment opts in, which is harmless.
+pub(crate) fn shader_uses_race(source: &str) -> bool {
+    source.contains("iGameState")
+}
+
 pub(crate) struct GameState {
     phase: RacePhase,
     // The race only counts down once the player clicks to arm it; until then
@@ -328,6 +337,26 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_shaders_reading_the_race_state_take_part_in_the_race() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../shaders");
+        let uses_race = |name: &str| {
+            let source = std::fs::read_to_string(dir.join(name)).unwrap();
+            shader_uses_race(&source)
+        };
+        for name in ["driving_game.wgsl", "slipstream_regatta.wgsl"] {
+            assert!(uses_race(name), "{name} should take part in the race");
+        }
+        // Click-interactive shaders that must receive every click.
+        for name in [
+            "koi_nocturne.wgsl",
+            "pokemon_grass.wgsl",
+            "astral_crown.wgsl",
+        ] {
+            assert!(!uses_race(name), "{name} should not take part in the race");
+        }
+    }
 
     #[test]
     fn countdown_requires_click_and_cannot_be_skipped() {
