@@ -1,5 +1,7 @@
 [workspace]
-members = ["vibe-renderer", "vibe", "vibe-audio"]
+members = ["vibe-renderer", "vibe", "vibe-audio", "vibe-web"]
+# Skip vibe-web for native builds — it only compiles for wasm32 targets.
+default-members = ["vibe-renderer", "vibe", "vibe-audio"]
 resolver = "2"
 
 [workspace.dependencies]

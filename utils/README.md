@@ -7,6 +7,8 @@ Helper scripts for keybindings, ambient effects, and live data feeds for [vibe](
 | Script | Description | Compositor Required |
 |--------|-------------|:---:|
 | `cycle-shader.sh` | Cycle through shaders for a given output config | No |
+| `vibe-web-window.sh` | Launch a dedicated browser app-window for a web shader | No |
+| `sync-web-shaders.py` | Generate the browser shader copies and catalog from `shaders/` | No |
 | `vibe-key-cycle.sh` | Keybinding: cycle shader on focused vibe window | Yes |
 | `randomize-colors.sh` | Randomize the 4-color palette | Optional |
 | `pokemon-click-cry.py` | Play Pokemon cry on shader click | No |
@@ -86,6 +88,21 @@ packages:
 ```bash
 python3 -m unittest discover -s utils/tests -v
 ```
+
+## Web Shader Window
+
+```bash
+# Open a random shader in an app-mode browser window
+utils/vibe-web-window.sh
+
+# Open a specific shader
+utils/vibe-web-window.sh nebula
+```
+
+The launcher lists shaders from the repository `shaders/` directory and expects
+the built web preview (`vibe-web/build.sh`) to be served at `$VIBE_WEB_URL`
+(default: `http://localhost:8766`). Chromium or Chrome is preferred because some
+browser wrappers disable GPU acceleration.
 
 ## Cluster Status Feeder
 
