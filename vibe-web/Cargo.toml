@@ -1,0 +1,35 @@
+[package]
+name = "vibe-web"
+version = "0.1.0"
+edition = "2021"
+description = "Web (WASM) frontend for vibe audio visualizer"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Self-contained deps: do NOT inherit `wgpu` from workspace because workspace
+# enables the `vulkan` backend, which fails to compile on wasm32.
+[dependencies]
+wgpu = { version = "29.0", default-features = false, features = [
+  "std",
+  "wgsl",
+  "webgpu",
+] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+console_log = "1"
+log = "0.4"
+bytemuck = { version = "1.25", features = ["derive"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "Window",
+  "Document",
+  "Element",
+  "HtmlCanvasElement",
+  "Performance",
+]

@@ -84,3 +84,26 @@ jobs:
       - uses: TornaxO7/rust-template@v3-ci-actions
       - name: Running tests
         run: cargo test -j 2 --verbose -- --test-threads=2
+
+  web:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Generate browser shader copies and catalog
+        run: |
+          python3 utils/sync-web-shaders.py
+          python3 utils/sync-web-shaders.py --check
+      - name: Check browser JavaScript
+        run: |
+          node --input-type=module --check < vibe-web/www/main.js
+          node --input-type=module --check < vibe-web/www/shader-catalog.js
+      - name: Build web crate
+        run: cargo build --locked -p vibe-web --target wasm32-unknown-unknown

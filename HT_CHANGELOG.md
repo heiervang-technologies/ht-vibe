@@ -8,6 +8,7 @@ For upstream changes, see [vibe/CHANGELOG.md](./vibe/CHANGELOG.md).
 
 ### Features
 
+- **Web visualizer preview** — `vibe-web/` is a WebGPU browser build of the fragment canvas with shader auto-discovery and a dedicated app-window launcher (`utils/vibe-web-window.sh`). Browser shader copies are generated from `shaders/` at build time by `utils/sync-web-shaders.py`, so there is one source of truth.
 - **Portable utility scripts** — Shader cycling, color randomization, Pokemon cry daemons, and K8s cluster status feeder with multi-compositor support (Hyprland, Sway, KDE Plasma) via shared `utils/lib/compositor.sh` abstraction ([427477c](https://github.com/heiervang-technologies/ht-vibe/commit/427477c))
 - **18 custom WGSL shaders** — aurora, cluster, deep_sea, event_horizon, grass, liquid, mandelbrot_light, monolith, nebula, plasma, pokemon_grass, pokemon_grass_3d, singularity, solar_system, starfield, tesseract, vortex, waveform ([b497b80](https://github.com/heiervang-technologies/ht-vibe/commit/b497b80))
 - **Additional WGSL shaders** — cymatics (Chladni standing-wave drumhead), driving_arctic / driving_city / driving_game / driving_sunset (procedural racing biomes), evil_mandelbulb, neural_bloom, solar_system_vivid, stormveil
