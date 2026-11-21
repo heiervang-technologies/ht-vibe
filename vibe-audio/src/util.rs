@@ -14,6 +14,13 @@ pub enum DeviceType {
     Output,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceInfo {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
 /// Returns the given output/input device of the given id.
 /// You can retrieve a list of available ids by using the [`get_device_ids`] function.
 ///
@@ -51,4 +58,28 @@ fn get_devices(device_type: DeviceType) -> Result<Devices, cpal::DevicesError> {
 /// Returns `Err` if there's a problem retrieving an output/input device.
 pub fn get_device_ids(device_type: DeviceType) -> Result<Vec<DeviceId>, cpal::DevicesError> {
     get_devices(device_type).map(|devices| devices.filter_map(|d| d.id().ok()).collect())
+}
+
+/// Returns stable ids and user-facing names for the available devices.
+pub fn get_device_infos(device_type: DeviceType) -> Result<Vec<DeviceInfo>, cpal::DevicesError> {
+    let default_id = get_default_device(device_type)
+        .and_then(|device| device.id().ok())
+        .map(|id| id.to_string());
+
+    get_devices(device_type).map(|devices| {
+        devices
+            .filter_map(|device| {
+                let id = device.id().ok()?.to_string();
+                let name = device
+                    .description()
+                    .map(|description| description.name().to_owned())
+                    .unwrap_or_else(|_| id.clone());
+                Some(DeviceInfo {
+                    is_default: default_id.as_deref() == Some(id.as_str()),
+                    id,
+                    name,
+                })
+            })
+            .collect()
+    })
 }

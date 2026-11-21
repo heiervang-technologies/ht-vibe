@@ -1,7 +1,10 @@
 mod cli;
 mod colors;
 mod config;
+mod game;
 mod output;
+mod overlay;
+mod settings;
 mod state;
 mod types;
 mod window;
