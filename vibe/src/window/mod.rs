@@ -131,6 +131,21 @@ impl OutputRenderer<'_> {
             export: crate::export::StateExport::new(&config.export),
         })
     }
+
+    /// Whether a loaded fragment shader takes part in the race. Read on demand so it
+    /// follows config reloads and shader cycling.
+    fn race_shader_loaded(&self) -> bool {
+        self.output_config
+            .components
+            .iter()
+            .any(|component| match component {
+                crate::output::config::component::Config::FragmentCanvas(canvas) => canvas
+                    .fragment_code
+                    .source()
+                    .is_ok_and(|source| crate::game::shader_uses_race(&source)),
+                _ => false,
+            })
+    }
 }
 
 impl ApplicationHandler for OutputRenderer<'_> {
@@ -278,7 +293,10 @@ impl ApplicationHandler for OutputRenderer<'_> {
                 && button_state == winit::event::ElementState::Pressed =>
             {
                 let current_time = self.time.elapsed().as_secs_f32();
-                if self.game.click(current_time) {
+                // The race swallows the clicks that arm and restart it. Shaders that
+                // are not part of the race must not lose clicks to that.
+                let forward = !self.race_shader_loaded() || self.game.click(current_time);
+                if forward {
                     self.state.as_mut().unwrap().update_mouse_click(
                         self.renderer.queue(),
                         &mut self.export,
