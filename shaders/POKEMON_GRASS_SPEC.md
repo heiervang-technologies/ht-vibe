@@ -158,4 +158,4 @@ path = "/path/to/shaders/pokemon_grass.wgsl"
 ## Companion Daemons
 
 - `pokemon-cries-daemon.sh` — Ambient random cries every 60-180s at 30% volume
-- `pokemon-click-cry.py` — Click-triggered cries at 40% volume, watches `/tmp/vibe-click`
+- `pokemon-click-cry.py` — Click-triggered cries at 40% volume, watches `$XDG_RUNTIME_DIR/vibe/pick`

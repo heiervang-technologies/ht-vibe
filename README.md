@@ -21,8 +21,8 @@ This is the [Heiervang Technologies](https://github.com/heiervang-technologies) 
 - **[Prismatic Loom](./shaders/PRISMATIC_LOOM.md)** — A Mandelbrot-derived geometric transformation bends and branches the actual silk ribbons, openings, and silhouette. Audio and a slow ambient route traverse recursion depth, complex slices, and physical torsion.
 - **Web preview** — `vibe-web/` is a WebGPU browser build of the fragment canvas with shader auto-discovery; `vibe-web/build.sh` generates its shader copies from `shaders/`
 - **Settings overlay and race game** — In window mode, `F1` opens a settings overlay (palette, keybinds, command macros, audio source); the `driving_*` and `slipstream_regatta` shaders are playable with WASD, Space and the mouse
-- **Click-to-interact Pokemon shader** — `iMouseClick` (vec4f, binding 8) and `iLocalTime` (binding 9) uniforms with GPU pixel readback for species identification. Writes click data to `/tmp/vibe-click` and species to `/tmp/vibe-click-species`
-- **BPM detection** — Spectral flux + autocorrelation algorithm with median smoothing. Exposes `iBPM` uniform (binding 4) to shaders and writes BPM to `/tmp/vibe-bpm` for Waybar integration
+- **Click-to-interact Pokemon shader** — `iMouseClick` (vec4f, binding 8) and `iLocalTime` (binding 9) uniforms with GPU pixel readback for entity picking. The app exports click data to `$XDG_RUNTIME_DIR/vibe/click` and the picked id to `$XDG_RUNTIME_DIR/vibe/pick` (see `[export]` config)
+- **BPM detection** — Spectral flux + autocorrelation algorithm with median smoothing. Exposes `iBPM` uniform (binding 4) to shaders and exports BPM to `$XDG_RUNTIME_DIR/vibe/bpm` (updated on change) for Waybar integration
 - **4-color palette system** — Configurable via `~/.config/vibe/colors.toml` with live file-watching reload. Exposes `iColors` uniform (binding 5) with fallback defaults
 
 #### Fixes
@@ -35,7 +35,7 @@ This is the [Heiervang Technologies](https://github.com/heiervang-technologies) 
 - **`vibe-web-window.sh`** — Launch a dedicated browser app-window for a selected or random `vibe-web` shader
 - **`vibe-key-cycle.sh`** — Keybinding helper that cycles shaders on the focused vibe window (Hyprland, Sway, KDE)
 - **`randomize-colors.sh`** — Randomize the 4-color palette (keybinding-friendly, multi-compositor)
-- **`pokemon-click-cry.py`** — Click-triggered Pokemon cry daemon (watches `/tmp/vibe-click-species`)
+- **`pokemon-click-cry.py`** — Click-triggered Pokemon cry daemon (watches `$XDG_RUNTIME_DIR/vibe/pick`)
 - **`pokemon-cries-daemon.sh`** — Ambient random Pokemon cries every 60-180s
 - **`cluster-status-feeder.sh`** — Feeds live Kubernetes cluster metrics into `cluster.wgsl` shader constants (configurable nodes)
 

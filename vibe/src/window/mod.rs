@@ -55,6 +55,7 @@ struct OutputRenderer<'a> {
     selected_audio_source: Option<String>,
     status: Option<String>,
     last_color_randomization: Instant,
+    export: crate::export::StateExport,
 }
 
 impl OutputRenderer<'_> {
@@ -127,6 +128,7 @@ impl OutputRenderer<'_> {
             selected_audio_source,
             status: None,
             last_color_randomization: Instant::now(),
+            export: crate::export::StateExport::new(&config.export),
         })
     }
 }
@@ -246,6 +248,7 @@ impl ApplicationHandler for OutputRenderer<'_> {
                 }
 
                 state.render(&self.renderer, overlay);
+                self.export.sync(&mut state.components);
                 state.window.request_redraw();
             }
 
@@ -276,10 +279,11 @@ impl ApplicationHandler for OutputRenderer<'_> {
             {
                 let current_time = self.time.elapsed().as_secs_f32();
                 if self.game.click(current_time) {
-                    self.state
-                        .as_mut()
-                        .unwrap()
-                        .update_mouse_click(self.renderer.queue(), current_time);
+                    self.state.as_mut().unwrap().update_mouse_click(
+                        self.renderer.queue(),
+                        &mut self.export,
+                        current_time,
+                    );
                 }
             }
             _ => {}

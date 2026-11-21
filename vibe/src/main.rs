@@ -1,6 +1,7 @@
 mod cli;
 mod colors;
 mod config;
+mod export;
 mod game;
 mod output;
 mod overlay;
