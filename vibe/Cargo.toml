@@ -16,6 +16,9 @@ anyhow.workspace = true
 cgmath.workspace = true
 clap.workspace = true
 image.workspace = true
+egui = "0.35"
+egui-wgpu = { version = "0.35", default-features = false }
+egui-winit = { version = "0.35", default-features = false, features = ["clipboard", "wayland"] }
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
