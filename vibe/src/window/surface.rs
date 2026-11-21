@@ -217,10 +217,20 @@ impl State<'_> {
 
     /// Normalize the last cursor position to [0,1] and forward the click to all components.
     /// See `Component::update_mouse_click` for the coordinate system contract.
-    pub fn update_mouse_click(&mut self, queue: &wgpu::Queue, time: f32) {
+    pub fn update_mouse_click(
+        &mut self,
+        queue: &wgpu::Queue,
+        export: &mut crate::export::StateExport,
+        time: f32,
+    ) {
         let rel_x = self.last_cursor_pos.x as f32 / self.surface_config.width as f32;
         let rel_y = self.last_cursor_pos.y as f32 / self.surface_config.height as f32;
 
+        export.click(
+            (rel_x, rel_y),
+            time,
+            [self.surface_config.width, self.surface_config.height],
+        );
         for component in self.components.iter_mut() {
             component.update_mouse_click(queue, (rel_x, rel_y), time);
         }

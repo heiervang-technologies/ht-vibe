@@ -55,8 +55,29 @@ pub struct AudioConfig {
     pub output_device_id: Option<String>,
 }
 
+/// Export of runtime state (BPM, last click, picked entity) for external tools.
+/// See `crate::export`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExportConfig {
+    pub enabled: bool,
+    /// `None` = `$XDG_RUNTIME_DIR/vibe`
+    pub dir: Option<std::path::PathBuf>,
+}
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            dir: None,
+        }
+    }
+}
+
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub export: ExportConfig,
     pub graphics_config: GraphicsConfig,
     pub audio_config: Option<AudioConfig>,
     pub default_component: Option<component::Config>,

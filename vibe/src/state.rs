@@ -57,6 +57,7 @@ pub struct State {
     outputs: HashMap<WlOutput, OutputCtx>,
 
     color_manager: ColorManager,
+    export: crate::export::StateExport,
 }
 
 impl State {
@@ -123,6 +124,7 @@ impl State {
             default_config
         });
 
+        let export_config = vibe_config.export.clone();
         let sample_processor = vibe_config.sample_processor()?;
 
         let renderer = Renderer::new(&vibe_renderer::RendererDescriptor::from(
@@ -148,6 +150,7 @@ impl State {
             default_component: vibe_config.default_component.unwrap_or_default(),
 
             color_manager: ColorManager::new(),
+            export: crate::export::StateExport::new(&export_config),
         })
     }
 
@@ -187,6 +190,8 @@ impl State {
                         &surface_texture.texture,
                     );
                 }
+
+                self.export.sync(&mut output.components);
 
                 surface_texture.present();
                 output.request_redraw(qh);
@@ -515,11 +520,21 @@ impl PointerHandler for State {
                         match button {
                             0x110 => {
                                 // BTN_LEFT: focus on click position
-                                output.update_mouse_click(queue, event.position, current_time);
+                                output.update_mouse_click(
+                                    queue,
+                                    &mut self.export,
+                                    event.position,
+                                    current_time,
+                                );
                             }
                             0x111 => {
                                 // BTN_RIGHT: clear focus
-                                output.update_mouse_click(queue, (-1.0, -1.0), current_time);
+                                output.update_mouse_click(
+                                    queue,
+                                    &mut self.export,
+                                    (-1.0, -1.0),
+                                    current_time,
+                                );
                             }
                             _ => {}
                         }

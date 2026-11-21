@@ -81,11 +81,21 @@ pub trait Component: Renderable {
     /// `slow`: `[player, ai0, ai1, ai2]` — seconds of slow remaining, `0` if not slowed.
     fn update_combat(&mut self, _queue: &wgpu::Queue, _projectiles: [f32; 4], _slow: [f32; 4]) {}
 
+    /// The most recent BPM computed by this component, if it tracks one.
+    fn bpm(&self) -> Option<f32> {
+        None
+    }
+
+    /// Returns a pick id once when a pixel readback after a click found a hit, then `None`.
+    fn take_pick(&mut self) -> Option<u32> {
+        None
+    }
+
     /// Called after the render pass completes with access to the rendered surface texture.
     ///
     /// This hook enables GPU pixel readback: components can copy pixels from the rendered
     /// frame back to the CPU. Used by FragmentCanvas to read shader-encoded data (e.g.,
-    /// the Pokemon shader encodes a clicked species ID at pixel (0,0) for CPU readback).
+    /// a shader can encode a clicked entity id at pixel (0,0) for CPU readback).
     fn post_render(
         &mut self,
         _device: &wgpu::Device,

@@ -3,7 +3,6 @@ use crate::{components::ComponentAudio, Renderable, Renderer};
 use chrono::Timelike;
 use pollster::FutureExt;
 use std::borrow::Cow;
-use std::io::Write;
 use vibe_audio::{
     fetcher::Fetcher, BarProcessor, BarProcessorConfig, BpmDetector, BpmDetectorConfig,
     CubicSplineInterpolation, SampleProcessor,
@@ -32,6 +31,8 @@ struct TextureCtx {
 pub struct FragmentCanvas {
     bar_processor: BarProcessor<CubicSplineInterpolation>,
     bpm_detector: BpmDetector,
+    last_bpm: Option<f32>,
+    pending_pick: Option<u32>,
 
     // GPU uniform buffers (bindings 0-14, see fragment_preamble.wgsl)
     iresolution: wgpu::Buffer,
@@ -500,6 +501,8 @@ impl FragmentCanvas {
         Ok(Self {
             bar_processor,
             bpm_detector,
+            last_bpm: None,
+            pending_pick: None,
 
             iresolution,
             freqs,
@@ -548,11 +551,7 @@ impl<F: Fetcher> ComponentAudio<F> for FragmentCanvas {
         // Update BPM
         let bpm = self.bpm_detector.process(processor);
         queue.write_buffer(&self.ibpm, 0, bytemuck::bytes_of(&bpm));
-
-        // Write BPM to file for external tools (waybar, etc.)
-        if let Ok(mut file) = std::fs::File::create("/tmp/vibe-bpm") {
-            let _ = writeln!(file, "{:.0}", bpm);
-        }
+        self.last_bpm = Some(bpm);
     }
 }
 
@@ -591,11 +590,9 @@ impl Component for FragmentCanvas {
     /// Click-to-interact pipeline overview:
     ///   1. Caller normalizes pixel coords to [0,1] and calls this method.
     ///   2. We write the click to the GPU uniform `iMouseClick` (vec4f: x, y, time, 0).
-    ///   3. We write `/tmp/vibe-click` atomically with all click metadata.
-    ///   4. We start GPU readback: for the next few frames, `post_render` copies pixel (0,0)
+    ///   3. We start GPU readback: for the next few frames, `post_render` copies pixel (0,0)
     ///      from the rendered texture. The shader encodes a clicked entity ID there.
-    ///   5. When readback finds a hit, we write `/tmp/vibe-click-species` with the species.
-    ///   6. The external Python daemon (pokemon-click-cry.py) watches both files.
+    ///   4. When readback finds a hit, the id is stored and handed out once by `take_pick`.
     fn update_mouse_click(&mut self, queue: &wgpu::Queue, pos: (f32, f32), time: f32) {
         self.last_click_pos = pos;
         self.last_click_time = time;
@@ -605,17 +602,8 @@ impl Component for FragmentCanvas {
             bytemuck::cast_slice(&[pos.0, pos.1, time, 0.0]),
         );
 
-        // Write click data atomically for external tools.
-        // File format: key=value pairs, one per line.
         if pos.0 >= 0.0 {
-            if let Ok(mut f) = std::fs::File::create("/tmp/vibe-click") {
-                let _ = write!(
-                    f,
-                    "x={}\ny={}\ntime={}\nwidth={}\nheight={}\n",
-                    pos.0, pos.1, time, self.resolution[0], self.resolution[1]
-                );
-            }
-            // Start GPU readback: the shader may encode a hit species at pixel (0,0).
+            // Start GPU readback: the shader may encode a hit entity id at pixel (0,0).
             // We check for up to 6 frames to give the GPU time to render the click.
             self.readback_frames_remaining = 6;
         }
@@ -623,14 +611,13 @@ impl Component for FragmentCanvas {
 
     /// GPU readback for shader-encoded click data.
     ///
-    /// Some shaders (e.g., pokemon_grass.wgsl) encode hit-test results at pixel (0,0):
+    /// Some shaders encode hit-test results at pixel (0,0):
     ///   - The shader writes `red = (entity_id + 1) / 255.0` at pixel (0,0) when a click
-    ///     hits an interactive entity (e.g., a Pokemon sprite).
+    ///     hits an interactive entity.
     ///   - Red channel = 0 means no hit; red > 0 means hit with `entity_id = red - 1`.
     ///
     /// This method copies pixel (0,0) to a staging buffer, maps it, and decodes the red
-    /// channel. On a hit, it writes the species to `/tmp/vibe-click-species` as a separate
-    /// file (no read-modify-write of the click file).
+    /// channel. On a hit, the id is stored and returned once by `take_pick`.
     fn post_render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture) {
         if self.readback_frames_remaining == 0 {
             return;
@@ -688,11 +675,8 @@ impl Component for FragmentCanvas {
             };
 
             if red > 0 {
-                // Hit! Decode entity_id and write to species file.
-                let species = (red - 1) as i32;
-                if let Ok(mut f) = std::fs::File::create("/tmp/vibe-click-species") {
-                    let _ = writeln!(f, "species={}", species);
-                }
+                // Hit! Decode the pick id.
+                self.pending_pick = Some((red - 1) as u32);
                 self.readback_frames_remaining = 0;
             } else {
                 self.readback_frames_remaining -= 1;
@@ -701,6 +685,14 @@ impl Component for FragmentCanvas {
             self.readback_buffer.unmap();
             self.readback_frames_remaining -= 1;
         }
+    }
+
+    fn bpm(&self) -> Option<f32> {
+        self.last_bpm
+    }
+
+    fn take_pick(&mut self) -> Option<u32> {
+        self.pending_pick.take()
     }
 
     fn update_keys(&mut self, queue: &wgpu::Queue, keys: [f32; 4]) {
