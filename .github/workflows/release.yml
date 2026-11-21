@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: TornaxO7/rust-template@v2-ci-actions
       - name: Generate changelog
-        run: git cliff --workdir vibe --config vibe/config.toml --latest --output CHANGELOG.md
+        run: git cliff --workdir vibe --config "$GITHUB_WORKSPACE/vibe/cliff.toml" --latest --output CHANGELOG.md
       - name: Release
         uses: softprops/action-gh-release@v2
         with:

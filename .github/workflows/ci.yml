@@ -1,7 +1,8 @@
 name: CI
 
+# Nothing here writes to the repository: formatting is checked, not committed.
 permissions:
-  contents: write
+  contents: read
 
 # Use our Nix Flake Environment for steps
 defaults:
@@ -9,9 +10,17 @@ defaults:
     shell: nix develop --command bash {0}
 
 on:
+  # The merged state of the default branch is tested too, not only PR heads.
+  push:
+    branches: [ "ht" ]
   pull_request:
     branches: [ "main", "ht" ]
     types: [opened, synchronize, reopened, ready_for_review]
+
+# A newer push to the same PR or branch supersedes the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,8 +28,6 @@ env:
 jobs:
   shader-cycle:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     defaults:
       run:
         shell: bash
@@ -32,40 +39,15 @@ jobs:
         run: python3 -m unittest discover -s utils/tests -v
 
   formatting:
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: TornaxO7/rust-template@v3-ci-actions
-      # Format the contributor's actual head, not GitHub's synthetic merge ref.
-      - uses: actions/checkout@v6
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
       - name: Check formatting
-        if: github.event.pull_request.head.repo.full_name != github.repository
         run: cargo fmt --check --verbose
-      - name: Format code
-        id: format_code
-        if: github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          cargo fmt --verbose
-          echo "modified=$(if git diff-index --quiet HEAD --; then echo "false"; else echo "true"; fi)" >> $GITHUB_OUTPUT
-
-      - name: Committing reformatted code
-        if: |
-          steps.format_code.outputs.modified == 'true' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          PR_HEAD_REF: ${{ github.head_ref }}
-        run: |
-          git config --global user.name 'Github Actions'
-          git config --global user.email '<>'
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-          git commit -am "Automated formatting"
-          git push origin "HEAD:$PR_HEAD_REF"
 
   clippy:
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: TornaxO7/rust-template@v3-ci-actions
@@ -75,7 +57,7 @@ jobs:
         run: cargo clippy -p vibe-audio --all-targets --verbose -- -Dwarnings
 
   tests:
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -86,10 +68,8 @@ jobs:
         run: cargo test -j 2 --verbose -- --test-threads=2
 
   web:
-    if: github.event.pull_request.draft == false
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     defaults:
       run:
         shell: bash

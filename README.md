@@ -19,6 +19,8 @@ This is the [Heiervang Technologies](https://github.com/heiervang-technologies) 
 - **[Console Drift](./shaders/console_drift.wgsl)** — An imagined future console OS background: emerald silk inspired by Xbox eases into PlayStation-inspired cobalt glass and back over four minutes. Slow layered waves, depth haze, and drifting motes keep it ambient; mouse movement adds gentle parallax and clicks leave a soft light pool. Uses signature green/blue hues with a slight palette tint. Available as `console_drift` in both collections. [Both moods](./assets/console_drift.webp).
 - **[Lantern Tide](./shaders/LANTERN_TIDE.md)** — Sky lanterns rise from a moonlit karst lake, each one burning on its own frequency band. Bass swells the lake, mids warm the valley mist, treble glitters on the moon path. The render is fully analytic, with correct rippled reflections.
 - **[Prismatic Loom](./shaders/PRISMATIC_LOOM.md)** — A Mandelbrot-derived geometric transformation bends and branches the actual silk ribbons, openings, and silhouette. Audio and a slow ambient route traverse recursion depth, complex slices, and physical torsion.
+- **Web preview** — `vibe-web/` is a WebGPU browser build of the fragment canvas with shader auto-discovery; `vibe-web/build.sh` generates its shader copies from `shaders/`
+- **Settings overlay and race game** — In window mode, `F1` opens a settings overlay (palette, keybinds, command macros, audio source); the `driving_*` and `slipstream_regatta` shaders are playable with WASD, Space and the mouse
 - **Click-to-interact Pokemon shader** — `iMouseClick` (vec4f, binding 8) and `iLocalTime` (binding 9) uniforms with GPU pixel readback for species identification. Writes click data to `/tmp/vibe-click` and species to `/tmp/vibe-click-species`
 - **BPM detection** — Spectral flux + autocorrelation algorithm with median smoothing. Exposes `iBPM` uniform (binding 4) to shaders and writes BPM to `/tmp/vibe-bpm` for Waybar integration
 - **4-color palette system** — Configurable via `~/.config/vibe/colors.toml` with live file-watching reload. Exposes `iColors` uniform (binding 5) with fallback defaults
@@ -30,6 +32,7 @@ This is the [Heiervang Technologies](https://github.com/heiervang-technologies) 
 
 #### Utilities ([`utils/`](./utils/README.md))
 - **`cycle-shader.sh`** — Cycle through shaders for any output/window config (next/prev/by-name)
+- **`vibe-web-window.sh`** — Launch a dedicated browser app-window for a selected or random `vibe-web` shader
 - **`vibe-key-cycle.sh`** — Keybinding helper that cycles shaders on the focused vibe window (Hyprland, Sway, KDE)
 - **`randomize-colors.sh`** — Randomize the 4-color palette (keybinding-friendly, multi-compositor)
 - **`pokemon-click-cry.py`** — Click-triggered Pokemon cry daemon (watches `/tmp/vibe-click-species`)
