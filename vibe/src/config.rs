@@ -93,7 +93,7 @@ impl Config {
                             "Please choose one from the list and add it to your config."
                         ],
                         vibe_audio::util::get_device_ids(DeviceType::Input)?,
-                        &output_device_id,
+                        output_device_id,
                         crate::get_config_path().to_string_lossy()
                     );
                     }

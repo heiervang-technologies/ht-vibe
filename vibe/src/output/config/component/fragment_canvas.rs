@@ -5,9 +5,7 @@ use image::{DynamicImage, ImageReader};
 use serde::{Deserialize, Serialize};
 use std::{num::NonZero, path::PathBuf};
 use vibe_audio::{fetcher::Fetcher, BarProcessorConfig};
-use vibe_renderer::components::{
-    FragmentCanvas, FragmentCanvasDescriptor, ShaderCode, ShaderSource,
-};
+use vibe_renderer::components::{FragmentCanvas, FragmentCanvasDescriptor, ShaderCode};
 
 #[derive(thiserror::Error, Debug)]
 pub enum FragmentCanvasLoadTexture {
@@ -71,10 +69,8 @@ impl ComponentConfig for FragmentCanvasConfig {
     fn external_paths(&self) -> Vec<PathBuf> {
         let mut paths = vec![];
 
-        let ShaderCode { source, .. } = &self.fragment_code;
-        match source {
-            ShaderSource::Path(path) => paths.push(path.clone()),
-            ShaderSource::Code(_) => {}
+        if let Some(resolved) = self.fragment_code.resolved_path() {
+            paths.push(resolved);
         }
 
         if let Some(texture) = &self.texture {
