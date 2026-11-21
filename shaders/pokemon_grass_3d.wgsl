@@ -24,6 +24,7 @@ const SURF_DIST: f32 = 0.002;
 const GRASS_H: f32 = 0.35;
 const CELL: f32 = 0.08;
 const BRIGHTNESS: f32 = 1.3;
+const EXPOSURE: f32 = 1.06;
 
 // 3D sprite atlas layout
 const FRAME_SIZE: f32 = 128.0;
@@ -34,6 +35,19 @@ const FRAMES_PER_POKEMON: u32 = 4u;
 const NUM_POKEMON: i32 = 5;
 const WALK_ANIM_SPEED: f32 = 4.0;
 const SPRITE_SCALE: f32 = 0.35;
+
+fn balanced_exposure(col: vec3<f32>) -> vec3<f32> {
+    var c = max(col * EXPOSURE, vec3<f32>(0.0));
+    let luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let shadow_lift = (1.0 - smoothstep(0.08, 0.48, luma)) * 0.045;
+    c += vec3<f32>(shadow_lift);
+    c = c / (vec3<f32>(1.0) + c * 0.28);
+
+    let softened_luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+    c = mix(vec3<f32>(softened_luma), c, 0.92);
+    c = (c - vec3<f32>(0.5)) * 0.92 + vec3<f32>(0.5);
+    return pow(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(0.95));
+}
 
 // Mouse repulsion
 const REPULSION_RADIUS: f32 = 0.6;
@@ -576,6 +590,7 @@ fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     // ──── Post-processing ────
     color *= BRIGHTNESS;
     color *= 1.0 - dot(uv * 0.6, uv * 0.6) * 0.18; // vignette
+    color = balanced_exposure(color);
 
     return vec4<f32>(
         clamp(color.x, 0.0, 1.0),
