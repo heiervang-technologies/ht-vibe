@@ -29,6 +29,21 @@ struct TextureCtx {
     tv: wgpu::TextureView,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum TextureUpdateError {
+    #[error("dynamic image dimensions {actual_width}x{actual_height} do not match texture dimensions {expected_width}x{expected_height}")]
+    DimensionMismatch {
+        actual_width: u32,
+        actual_height: u32,
+        expected_width: u32,
+        expected_height: u32,
+    },
+    #[error("dynamic RGBA frame has {actual} bytes; expected {expected}")]
+    ByteLengthMismatch { actual: usize, expected: usize },
+    #[error("fragment canvas has no image texture")]
+    MissingTexture,
+}
+
 pub struct FragmentCanvas {
     bar_processor: BarProcessor<CubicSplineInterpolation>,
     bpm_detector: BpmDetector,
@@ -42,6 +57,7 @@ pub struct FragmentCanvas {
     icolors: wgpu::Buffer,
     imouseclick: wgpu::Buffer,
     ilocaltime: wgpu::Buffer,
+    ikick: wgpu::Buffer,
     _itexture: Option<TextureCtx>,
 
     // Click state (normalized [0,1] coordinates, see Component::update_mouse_click)
@@ -120,6 +136,13 @@ impl FragmentCanvas {
 
         let ilocaltime = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Fragment canvas: `iLocalTime` buffer"),
+            size: std::mem::size_of::<f32>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let ikick = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Fragment canvas: `iKick` buffer"),
             size: std::mem::size_of::<f32>() as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -223,6 +246,17 @@ impl FragmentCanvas {
                     },
                     count: None,
                 },
+                // iKick
+                wgpu::BindGroupLayoutEntry {
+                    binding: 10,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ];
 
             if let Some(_texture) = &itexture {
@@ -262,12 +296,12 @@ impl FragmentCanvas {
                 let shader_source = match desc.fragment_code.language {
                     super::ShaderLanguage::Wgsl => {
                         const PREAMBLE: &str = include_str!("./fragment_preamble.wgsl");
-                        let full_code = format!("{}\n{}", PREAMBLE, &source);
+                        let full_code = format!("{}\n{}", PREAMBLE, source);
                         wgpu::ShaderSource::Wgsl(Cow::Owned(full_code))
                     }
                     super::ShaderLanguage::Glsl => {
                         const PREAMBLE: &str = include_str!("./fragment_preamble.glsl");
-                        let full_code = format!("{}\n{}", PREAMBLE, &source);
+                        let full_code = format!("{}\n{}", PREAMBLE, source);
                         wgpu::ShaderSource::Glsl {
                             shader: Cow::Owned(full_code),
                             stage: wgpu::naga::ShaderStage::Fragment,
@@ -353,6 +387,10 @@ impl FragmentCanvas {
                     binding: 9,
                     resource: ilocaltime.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: ikick.as_entire_binding(),
+                },
             ];
 
             if let Some(texture) = &itexture {
@@ -394,6 +432,7 @@ impl FragmentCanvas {
             icolors,
             imouseclick,
             ilocaltime,
+            ikick,
             _itexture: itexture,
 
             last_click_pos: (-1.0, -1.0),
@@ -408,6 +447,50 @@ impl FragmentCanvas {
             readback_frames_remaining: 0,
             surface_format: desc.format,
         })
+    }
+
+    pub fn update_texture_rgba(
+        &self,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<(), TextureUpdateError> {
+        let texture = &self
+            ._itexture
+            .as_ref()
+            .ok_or(TextureUpdateError::MissingTexture)?
+            ._texture;
+        if texture.width() != width || texture.height() != height {
+            return Err(TextureUpdateError::DimensionMismatch {
+                actual_width: width,
+                actual_height: height,
+                expected_width: texture.width(),
+                expected_height: texture.height(),
+            });
+        }
+        let expected = width as usize * height as usize * 4;
+        if rgba.len() != expected {
+            return Err(TextureUpdateError::ByteLengthMismatch {
+                actual: rgba.len(),
+                expected,
+            });
+        }
+        queue.write_texture(
+            texture.as_image_copy(),
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            texture.size(),
+        );
+        Ok(())
+    }
+
+    pub fn update_kick(&self, queue: &wgpu::Queue, kick: f32) {
+        queue.write_buffer(&self.ikick, 0, bytemuck::bytes_of(&kick.clamp(0.0, 1.0)));
     }
 }
 
@@ -571,7 +654,7 @@ impl Component for FragmentCanvas {
                 // Hit! Decode entity_id and write to species file.
                 let species = (red - 1) as i32;
                 if let Ok(mut f) = std::fs::File::create("/tmp/vibe-click-species") {
-                    let _ = write!(f, "species={}\n", species);
+                    let _ = writeln!(f, "species={}", species);
                 }
                 self.readback_frames_remaining = 0;
             } else {

@@ -1,5 +1,32 @@
 # Usage
 
+## Headless rendering
+
+The HT fork includes `vibe-headless`, an offscreen renderer for servers and
+streaming containers without a Wayland compositor, GPU device, or audio input.
+It uses Vibe's existing audio processor and shader renderer through WGPU's
+software Vulkan adapter and writes transparent RGBA frames to stdout.
+
+```bash
+vibe-headless \
+  --audio Peak.wav \
+  --shader shaders/waveform_overlay.wgsl \
+  --width 1280 \
+  --height 720 \
+  --fps 24 \
+  | ffmpeg -f rawvideo -pixel_format rgba -video_size 1280x720 -framerate 24 \
+      -i - output.mov
+```
+
+Use `--frames N` for finite renders and tests. Without it, both the WAV input
+and RGBA output loop indefinitely. The output contains no background fill, so
+it can be composited directly over another video source.
+
+On headless Arch Linux hosts, install `vulkan-swrast` to provide Mesa's Lavapipe
+software Vulkan adapter.
+
+## Desktop rendering
+
 1. Install the dependencies (see the [`Dependencies`](https://github.com/TornaxO7/vibe/blob/main/USAGE.md#dependencies) section below).
 2. (optional) set the rust toolchain `rustup default stable`
 3. Enter the `vibe` directory (`cd vibe`)

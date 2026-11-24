@@ -36,3 +36,4 @@ smithay-client-toolkit = "0.20"
 vibe-renderer = { path = "../vibe-renderer" }
 
 notify = { version = "8", default-features = false }
+hound = "3.5"

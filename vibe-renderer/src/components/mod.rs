@@ -15,7 +15,7 @@ pub use aurodio::{Aurodio, AurodioDescriptor, AurodioLayerDescriptor};
 pub use bars::{BarBorder, BarVariant, Bars, BarsDescriptor, BarsFormat, BarsPlacement};
 pub use chessy::{Chessy, ChessyDescriptor};
 pub use circle::{Circle, CircleDescriptor, CircleVariant};
-pub use fragment_canvas::{FragmentCanvas, FragmentCanvasDescriptor};
+pub use fragment_canvas::{FragmentCanvas, FragmentCanvasDescriptor, TextureUpdateError};
 pub use graph::{Graph, GraphBorder, GraphDescriptor, GraphFormat, GraphPlacement, GraphVariant};
 pub use radial::{Radial, RadialDescriptor, RadialFormat, RadialVariant};
 pub use rising_blocks::{

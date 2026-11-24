@@ -64,3 +64,7 @@ var<uniform> iMouseClick: vec4f;
 // Contains the local wall-clock time as hours since midnight (0.0-24.0).
 @group(0) @binding(9)
 var<uniform> iLocalTime: f32;
+
+// Frame-accurate kick transient envelope in the range [0, 1].
+@group(0) @binding(10)
+var<uniform> iKick: f32;
